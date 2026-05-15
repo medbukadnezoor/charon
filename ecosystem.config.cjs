@@ -18,14 +18,14 @@ module.exports = {
     },
     {
       // Wallet auto-sync pipeline: harvest → enrich → sync → safe restart
-      // Runs every 6 hours. Skips restart if nothing new (exit 2) or positions
+      // Runs every 2 hours. Skips restart if nothing new (exit 2) or positions
       // still open after 30 min (exit 3 — retries next cycle).
       // Logs: /opt/trading-data/logs/auto-sync-YYYY-MM-DD.log
       name: "charon-auto-sync",
       cwd: "/home/opc/charon",
       script: "/home/opc/charon/scripts/auto_sync_wallets.sh",
       interpreter: "/usr/bin/bash",
-      cron_restart: "0 */6 * * *",
+      cron_restart: "0 */2 * * *",
       autorestart: false,
       watch: false,
       env: {
