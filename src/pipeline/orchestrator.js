@@ -16,6 +16,7 @@ import { setDegenHandler } from '../signals/trending.js';
 import { setCandidateHandler } from '../signals/feeClaim.js';
 import { short } from '../format.js';
 import { escapeHtml } from '../format.js';
+import { effectiveLlmMinConfidence, shouldApproveEntry } from './entryApproval.js';
 
 export const seenSignalCandidates = new Map();
 
@@ -87,18 +88,24 @@ export async function processCandidateFromSignals(signals) {
 
   if (batchId) await sendBatchReveal(batchId, rows, batchDecision, candidateId);
 
-  if (selectedRow && boolSetting('agent_enabled', true) && batchDecision.verdict === 'BUY' && batchDecision.confidence >= numSetting('llm_min_confidence', 75)) {
+  const agentEnabled = boolSetting('agent_enabled', true);
+  const confidenceThreshold = effectiveLlmMinConfidence(strat, numSetting('llm_min_confidence', 75));
+  const mode = tradingMode();
+  const maxOpenPositions = Number.isFinite(Number(strat.max_open_positions))
+    ? Number(strat.max_open_positions)
+    : numSetting('max_open_positions', 3);
+  if (shouldApproveEntry({ selectedRow, agentEnabled, decision: batchDecision, confidenceThreshold })) {
     if (!canOpenMorePositions()) {
-      const max = numSetting('max_open_positions', 3);
-      console.log(`[agent] max open positions reached (${openPositionCount()}/${max}), skipping buy ${selectedRow.candidate.token.mint}`);
+      console.log(`[agent] max open positions reached (${openPositionCount()}/${maxOpenPositions}), skipping buy ${selectedRow.candidate.token.mint}`);
       logDecisionEvent({
         batchId,
         triggerCandidateId: candidateId,
         selectedRow,
         rows,
         decision: batchDecision,
+        mode,
         action: 'entry_skipped_max_positions',
-        guardrails: { maxOpenPositions: max, openPositions: openPositionCount() },
+        guardrails: { maxOpenPositions, openPositions: openPositionCount() },
       });
       return;
     }
@@ -110,12 +117,13 @@ export async function processCandidateFromSignals(signals) {
       selectedRow,
       rows,
       decision: batchDecision,
+      mode,
       action: selectedRow ? 'entry_not_approved' : 'no_candidate_selected',
       guardrails: {
-        agentEnabled: boolSetting('agent_enabled', true),
-        confidenceThreshold: numSetting('llm_min_confidence', 75),
+        agentEnabled,
+        confidenceThreshold,
         openPositions: openPositionCount(),
-        maxOpenPositions: numSetting('max_open_positions', 3),
+        maxOpenPositions,
       },
     });
   }
