@@ -10,6 +10,87 @@ HARVESTER_DIR="$MOONBAGS_DIR/tools/wallet-harvester"
 # Allow env var overrides for VPS layouts where DBs live outside the repo dir
 CHARON_DB="${CHARON_DB_PATH:-$CHARON_DIR/charon.sqlite}"
 HARVESTER_DB="${HARVESTER_DB_PATH:-$HARVESTER_DIR/data/harvester.db}"
+
+db_has_table() {
+  local db_path="$1"
+  local table_name="$2"
+
+  if command -v sqlite3 >/dev/null 2>&1; then
+    local found
+    found="$(sqlite3 "$db_path" "SELECT name FROM sqlite_master WHERE type='table' AND name='$table_name';")"
+    [ "$found" = "$table_name" ]
+    return
+  fi
+
+  CHECK_DB="$db_path" CHECK_TABLE="$table_name" NODE_PATH="$CHARON_DIR/node_modules" node <<'NODE'
+const Database = require('better-sqlite3');
+
+const dbPath = process.env.CHECK_DB;
+const tableName = process.env.CHECK_TABLE;
+
+if (!dbPath || !tableName) {
+  process.exit(2);
+}
+
+const db = new Database(dbPath, { readonly: true, fileMustExist: true });
+try {
+  const row = db
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
+    .get(tableName);
+  process.exit(row ? 0 : 1);
+} finally {
+  db.close();
+}
+NODE
+}
+
+echo "[auto-sync] Validating environment..."
+echo "[auto-sync]   CHARON_DB=$CHARON_DB"
+echo "[auto-sync]   HARVESTER_DB=$HARVESTER_DB"
+echo "[auto-sync]   HARVESTER_DIR=$HARVESTER_DIR"
+
+missing_db_env=0
+if [ -z "${CHARON_DB_PATH:-}" ]; then
+  echo "FATAL: CHARON_DB_PATH must be set; refusing to use default Charon DB path $CHARON_DB" >&2
+  missing_db_env=1
+fi
+if [ -z "${HARVESTER_DB_PATH:-}" ]; then
+  echo "FATAL: HARVESTER_DB_PATH must be set; refusing to use default harvester DB path $HARVESTER_DB" >&2
+  missing_db_env=1
+fi
+if [ "$missing_db_env" -ne 0 ]; then
+  exit 1
+fi
+
+if [ ! -d "$HARVESTER_DIR" ]; then
+  echo "FATAL: Harvester directory not found at $HARVESTER_DIR" >&2
+  exit 1
+fi
+
+if [ ! -f "$CHARON_DB" ]; then
+  echo "FATAL: Charon DB not found at $CHARON_DB" >&2
+  exit 1
+fi
+
+if [ ! -f "$HARVESTER_DB" ]; then
+  echo "FATAL: Harvester DB not found at $HARVESTER_DB" >&2
+  exit 1
+fi
+
+if ! db_has_table "$CHARON_DB" "saved_wallets"; then
+  echo "FATAL: Charon DB at $CHARON_DB missing table: saved_wallets" >&2
+  exit 1
+fi
+
+for required_table in wallets wallet_profiles runs; do
+  if ! db_has_table "$HARVESTER_DB" "$required_table"; then
+    echo "FATAL: Harvester DB at $HARVESTER_DB missing table: $required_table" >&2
+    exit 1
+  fi
+done
+
+echo "[auto-sync] Validation passed"
+
 LOG_DIR="${LOG_DIR:-/opt/trading-data/logs}"
 LOG_FILE="$LOG_DIR/auto-sync-$(date -u +%Y-%m-%d).log"
 LOG_PREFIX="[auto-sync $(date -u +%Y-%m-%dT%H:%M:%SZ)]"
