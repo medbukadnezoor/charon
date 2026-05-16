@@ -118,18 +118,25 @@ fi
 export HARVESTER_GMGN_HOLDER_LIMIT="${HARVESTER_GMGN_HOLDER_LIMIT:-100}"
 export HARVESTER_GMGN_TRADER_LIMIT="${HARVESTER_GMGN_TRADER_LIMIT:-100}"
 export HARVESTER_PROFILE_ENRICH_LIMIT="${HARVESTER_PROFILE_ENRICH_LIMIT:-100}"
+export HARVESTER_ENABLE_OKX_DISCOVERY="${HARVESTER_ENABLE_OKX_DISCOVERY:-false}"
 
 echo "$LOG_PREFIX GMGN holder limit=$HARVESTER_GMGN_HOLDER_LIMIT"
 echo "$LOG_PREFIX GMGN trader limit=$HARVESTER_GMGN_TRADER_LIMIT"
 echo "$LOG_PREFIX Profile enrich limit=$HARVESTER_PROFILE_ENRICH_LIMIT"
+echo "$LOG_PREFIX OKX extra discovery=$HARVESTER_ENABLE_OKX_DISCOVERY"
 
-# Step 1: Run GMGN harvester
+# Step 1: Run harvester. OKX can expand the harvester wallet pool, but Charon
+# sync remains gated on GMGN profile evidence in Step 3.
 echo "$LOG_PREFIX Step 1: Running harvester..."
 cd "$HARVESTER_DIR"
-npm run harvest:run:gmgn 2>&1 | tail -5
+if [ "$HARVESTER_ENABLE_OKX_DISCOVERY" = "true" ]; then
+  npm run harvest:run:okx 2>&1 | tail -8
+else
+  npm run harvest:run:gmgn 2>&1 | tail -5
+fi
 echo "$LOG_PREFIX Step 1: Harvester complete"
 
-# Step 2: Enrich new wallets with GMGN + OKX profiles (non-fatal if API key missing)
+# Step 2: Enrich wallets with GMGN profiles (non-fatal if profile API is limited)
 echo "$LOG_PREFIX Step 2: Enriching wallet profiles (limit $HARVESTER_PROFILE_ENRICH_LIMIT)..."
 npx tsx src/enrichWalletProfile.ts --limit="$HARVESTER_PROFILE_ENRICH_LIMIT" 2>&1 | tail -10 || true
 echo "$LOG_PREFIX Step 2: Enrichment complete"
