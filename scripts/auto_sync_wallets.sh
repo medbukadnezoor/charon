@@ -113,6 +113,16 @@ else
   echo "$LOG_PREFIX MoonBags environment file not found; harvester enrichment may be limited"
 fi
 
+# GMGN discovery breadth. These defaults widen each token's holder/trader scan
+# without increasing the number of tokens scanned per run.
+export HARVESTER_GMGN_HOLDER_LIMIT="${HARVESTER_GMGN_HOLDER_LIMIT:-100}"
+export HARVESTER_GMGN_TRADER_LIMIT="${HARVESTER_GMGN_TRADER_LIMIT:-100}"
+export HARVESTER_PROFILE_ENRICH_LIMIT="${HARVESTER_PROFILE_ENRICH_LIMIT:-100}"
+
+echo "$LOG_PREFIX GMGN holder limit=$HARVESTER_GMGN_HOLDER_LIMIT"
+echo "$LOG_PREFIX GMGN trader limit=$HARVESTER_GMGN_TRADER_LIMIT"
+echo "$LOG_PREFIX Profile enrich limit=$HARVESTER_PROFILE_ENRICH_LIMIT"
+
 # Step 1: Run GMGN harvester
 echo "$LOG_PREFIX Step 1: Running harvester..."
 cd "$HARVESTER_DIR"
@@ -120,8 +130,8 @@ npm run harvest:run:gmgn 2>&1 | tail -5
 echo "$LOG_PREFIX Step 1: Harvester complete"
 
 # Step 2: Enrich new wallets with GMGN + OKX profiles (non-fatal if API key missing)
-echo "$LOG_PREFIX Step 2: Enriching wallet profiles (limit 50)..."
-npx tsx src/enrichWalletProfile.ts --limit=50 2>&1 | tail -10 || true
+echo "$LOG_PREFIX Step 2: Enriching wallet profiles (limit $HARVESTER_PROFILE_ENRICH_LIMIT)..."
+npx tsx src/enrichWalletProfile.ts --limit="$HARVESTER_PROFILE_ENRICH_LIMIT" 2>&1 | tail -10 || true
 echo "$LOG_PREFIX Step 2: Enrichment complete"
 
 # Step 3: Sync new enriched wallets to Charon
