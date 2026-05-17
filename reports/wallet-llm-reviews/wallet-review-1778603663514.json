@@ -1,0 +1,652 @@
+{
+  "generated_at": "2026-05-12T16:34:23.514Z",
+  "model": "mimo-v2.5-pro",
+  "base_url": "https://api.xiaomimimo.com/v1",
+  "batch_id": "wallet-review-1778603663514",
+  "batch_ids": [
+    "wallet-review-1778603536365-c1-b1",
+    "wallet-review-1778603536365-c1-b2",
+    "wallet-review-1778603536365-c1-b3",
+    "wallet-review-1778603536365-c1-b4",
+    "wallet-review-1778603536365-c1-b5",
+    "wallet-review-1778603536365-c1-b6",
+    "wallet-review-1778603536365-c1-b7"
+  ],
+  "wallet_count": 62,
+  "verdict_counts": {
+    "inflated_or_wash": 16,
+    "copy_trader": 2,
+    "insufficient_data": 30,
+    "genuine_smart_trader": 13,
+    "bot_or_sniper": 1
+  },
+  "action_counts": {
+    "demote": 12,
+    "watch": 36,
+    "remove": 4,
+    "keep": 7,
+    "promote": 3
+  },
+  "rows": [
+    {
+      "wallet_address": "73f1cxg7cMM52fdLjKXcadKhi7GWV6MSZkWrdq7w7bNM",
+      "llm_verdict": "inflated_or_wash",
+      "llm_confidence": 65,
+      "llm_reasoning": "KOL-like profile with only holder sightings and no trader actions, indicating noisy influencer flow rather than a profitable smart trader.",
+      "recommended_action": "demote",
+      "batch_id": "wallet-review-1778603536365-c1-b1",
+      "reviewed_at_ms": 1778603558652,
+      "reviewed_at_iso": "2026-05-12T16:32:38.652Z"
+    },
+    {
+      "wallet_address": "79c2XHrcjA7HrLt3u4Pkwbm4gezeGq35iSnfDwZezAy6",
+      "llm_verdict": "copy_trader",
+      "llm_confidence": 70,
+      "llm_reasoning": "Multiple sell sightings on high-mcap tokens with bundler tags and positive PnL suggest copy-trading behavior rather than early micro-cap sniping.",
+      "recommended_action": "watch",
+      "batch_id": "wallet-review-1778603536365-c1-b1",
+      "reviewed_at_ms": 1778603558652,
+      "reviewed_at_iso": "2026-05-12T16:32:38.652Z"
+    },
+    {
+      "wallet_address": "7q15WZ4iSUDvqfs5Kdh9bfptkQhs6qKUyCUq6GY6PGxg",
+      "llm_verdict": "inflated_or_wash",
+      "llm_confidence": 60,
+      "llm_reasoning": "Predominantly holder sightings with only one sell on a high-mcap token, and positive PnL from that sell may indicate wash or inflated activity.",
+      "recommended_action": "demote",
+      "batch_id": "wallet-review-1778603536365-c1-b1",
+      "reviewed_at_ms": 1778603558652,
+      "reviewed_at_iso": "2026-05-12T16:32:38.652Z"
+    },
+    {
+      "wallet_address": "7wiEWKeG7sFUNh1TgujwCa9cmJtSSE4mNLDde7knjoeE",
+      "llm_verdict": "copy_trader",
+      "llm_confidence": 70,
+      "llm_reasoning": "Sells on high-mcap tokens with bundler tags and positive PnL align with copy-trading patterns rather than genuine early micro-cap trading.",
+      "recommended_action": "watch",
+      "batch_id": "wallet-review-1778603536365-c1-b1",
+      "reviewed_at_ms": 1778603558652,
+      "reviewed_at_iso": "2026-05-12T16:32:38.652Z"
+    },
+    {
+      "wallet_address": "8AaJxU97iu2FYMq4oG5ccYDJsJjK7XwvzjTcVpotwNZu",
+      "llm_verdict": "inflated_or_wash",
+      "llm_confidence": 75,
+      "llm_reasoning": "All sightings are holder-only with no trader actions, and positive PnL on holder data suggests inflated or wash activity.",
+      "recommended_action": "demote",
+      "batch_id": "wallet-review-1778603536365-c1-b1",
+      "reviewed_at_ms": 1778603558652,
+      "reviewed_at_iso": "2026-05-12T16:32:38.652Z"
+    },
+    {
+      "wallet_address": "8E1G1qWQZERejrGLF1ye66cx1xBUGp2Tahh6tTGYsPsB",
+      "llm_verdict": "inflated_or_wash",
+      "llm_confidence": 80,
+      "llm_reasoning": "KOL-like profile with negative PnL and only holder sightings, indicating noisy influencer flow with no profitable trading signals.",
+      "recommended_action": "remove",
+      "batch_id": "wallet-review-1778603536365-c1-b1",
+      "reviewed_at_ms": 1778603558652,
+      "reviewed_at_iso": "2026-05-12T16:32:38.652Z"
+    },
+    {
+      "wallet_address": "8LUtQLSVoKewkXXHSsWJA9sio9cH7Q4hSfKVm5cRk7QY",
+      "llm_verdict": "inflated_or_wash",
+      "llm_confidence": 70,
+      "llm_reasoning": "All sightings are holder-only with no trader actions, and positive PnL on holder data may indicate inflated or wash activity.",
+      "recommended_action": "demote",
+      "batch_id": "wallet-review-1778603536365-c1-b1",
+      "reviewed_at_ms": 1778603558652,
+      "reviewed_at_iso": "2026-05-12T16:32:38.652Z"
+    },
+    {
+      "wallet_address": "8Xnit4gf2R5cA3XE6KobuyWjiPfTptsJxN7rrAu8YbiW",
+      "llm_verdict": "insufficient_data",
+      "llm_confidence": 50,
+      "llm_reasoning": "Only holder sightings with limited tokens and no trader actions, making it impossible to classify as a smart trader despite positive PnL.",
+      "recommended_action": "watch",
+      "batch_id": "wallet-review-1778603536365-c1-b1",
+      "reviewed_at_ms": 1778603558652,
+      "reviewed_at_iso": "2026-05-12T16:32:38.652Z"
+    },
+    {
+      "wallet_address": "8fcpKabenaFrm53uB2jaMk9vpUVHa626KKcSYTiTCAf2",
+      "llm_verdict": "insufficient_data",
+      "llm_confidence": 55,
+      "llm_reasoning": "Mostly holder sightings with one sell action on a high-mcap token, and sparse trader data prevents confident classification as a smart trader.",
+      "recommended_action": "watch",
+      "batch_id": "wallet-review-1778603536365-c1-b1",
+      "reviewed_at_ms": 1778603558652,
+      "reviewed_at_iso": "2026-05-12T16:32:38.652Z"
+    },
+    {
+      "wallet_address": "8gW5oJqmrDk7Ja8kpTcwba3tDFx4PuexgYg9QdCCZDiM",
+      "llm_verdict": "inflated_or_wash",
+      "llm_confidence": 70,
+      "llm_reasoning": "KOL-like profile with only holder sightings and no trader actions, indicating noisy influencer flow with zero PnL.",
+      "recommended_action": "demote",
+      "batch_id": "wallet-review-1778603536365-c1-b1",
+      "reviewed_at_ms": 1778603558652,
+      "reviewed_at_iso": "2026-05-12T16:32:38.652Z"
+    },
+    {
+      "wallet_address": "9488N1xhqspsRwSHJJdUJxvApZxgTbLStbGZAT9H12H3",
+      "llm_verdict": "insufficient_data",
+      "llm_confidence": 40,
+      "llm_reasoning": "Wallet has only holder sightings with no trader actions and unavailable wallet analytics, making it impossible to confirm as a genuine trader.",
+      "recommended_action": "watch",
+      "batch_id": "wallet-review-1778603536365-c1-b2",
+      "reviewed_at_ms": 1778603577020,
+      "reviewed_at_iso": "2026-05-12T16:32:57.020Z"
+    },
+    {
+      "wallet_address": "9KuTh7Ap29B13LWyDx4W7N5iCCrs9n3Vz3kLQ6ZbwKgW",
+      "llm_verdict": "insufficient_data",
+      "llm_confidence": 45,
+      "llm_reasoning": "Wallet shows some trader activity but wallet-level analytics are unavailable and sightings are sparse, preventing confident classification.",
+      "recommended_action": "watch",
+      "batch_id": "wallet-review-1778603536365-c1-b2",
+      "reviewed_at_ms": 1778603577020,
+      "reviewed_at_iso": "2026-05-12T16:32:57.020Z"
+    },
+    {
+      "wallet_address": "9XJ9RQUgUFJ9ki8SiSyL5VqdtBA9rHCF92MKVYDqPEvY",
+      "llm_verdict": "insufficient_data",
+      "llm_confidence": 35,
+      "llm_reasoning": "All sightings are holder-only with unavailable analytics and amounts, providing no evidence of active trading behavior.",
+      "recommended_action": "watch",
+      "batch_id": "wallet-review-1778603536365-c1-b2",
+      "reviewed_at_ms": 1778603577020,
+      "reviewed_at_iso": "2026-05-12T16:32:57.020Z"
+    },
+    {
+      "wallet_address": "9cxLzxjrTeodcbaEU3KCNGE1a4yFZEcdJ7uEXN378S4U",
+      "llm_verdict": "insufficient_data",
+      "llm_confidence": 35,
+      "llm_reasoning": "Wallet appears as a holder with no trader actions and unavailable wallet analytics, despite positive PnL.",
+      "recommended_action": "watch",
+      "batch_id": "wallet-review-1778603536365-c1-b2",
+      "reviewed_at_ms": 1778603577020,
+      "reviewed_at_iso": "2026-05-12T16:32:57.020Z"
+    },
+    {
+      "wallet_address": "AVjEtg2ECYKXYeqdRQXvaaAZBjfTjYuSMTR4WLhKoeQN",
+      "llm_verdict": "inflated_or_wash",
+      "llm_confidence": 70,
+      "llm_reasoning": "KOL-like wallet with positive PnL but only holder sightings and no trader actions, suggesting noisy influencer flow rather than profitable trading.",
+      "recommended_action": "demote",
+      "batch_id": "wallet-review-1778603536365-c1-b2",
+      "reviewed_at_ms": 1778603577020,
+      "reviewed_at_iso": "2026-05-12T16:32:57.020Z"
+    },
+    {
+      "wallet_address": "AdHmAXchDLi6Niqx3h4QzipFSMu1Dm1yh7RwvGBKJPJa",
+      "llm_verdict": "insufficient_data",
+      "llm_confidence": 40,
+      "llm_reasoning": "Wallet has high positive PnL but only holder sightings with unavailable analytics, making it impossible to verify trading activity.",
+      "recommended_action": "watch",
+      "batch_id": "wallet-review-1778603536365-c1-b2",
+      "reviewed_at_ms": 1778603577020,
+      "reviewed_at_iso": "2026-05-12T16:32:57.020Z"
+    },
+    {
+      "wallet_address": "BL9mJiRQkfB9i9tMGZX2tSRFqbZVyXdPRKLyiYxkZbGM",
+      "llm_verdict": "genuine_smart_trader",
+      "llm_confidence": 65,
+      "llm_reasoning": "Wallet shows mixed trader and holder activity with buy/sell actions, positive PnL, and targets micro-cap tokens under 200K market cap.",
+      "recommended_action": "keep",
+      "batch_id": "wallet-review-1778603536365-c1-b2",
+      "reviewed_at_ms": 1778603577020,
+      "reviewed_at_iso": "2026-05-12T16:32:57.020Z"
+    },
+    {
+      "wallet_address": "BVrGGCNcZxNSChWa7XEnGDPJZQTgCmfQYurzDMimnQVr",
+      "llm_verdict": "insufficient_data",
+      "llm_confidence": 45,
+      "llm_reasoning": "Wallet has trader sightings but limited context and unavailable analytics, preventing confident classification as a smart trader.",
+      "recommended_action": "watch",
+      "batch_id": "wallet-review-1778603536365-c1-b2",
+      "reviewed_at_ms": 1778603577020,
+      "reviewed_at_iso": "2026-05-12T16:32:57.020Z"
+    },
+    {
+      "wallet_address": "Bapcdwy318WjUcQhUiZWgUksdZpRSWWWsXfvWKf31nH9",
+      "llm_verdict": "insufficient_data",
+      "llm_confidence": 35,
+      "llm_reasoning": "All sightings are holder-only with unavailable amounts and analytics, showing no evidence of active trading.",
+      "recommended_action": "watch",
+      "batch_id": "wallet-review-1778603536365-c1-b2",
+      "reviewed_at_ms": 1778603577020,
+      "reviewed_at_iso": "2026-05-12T16:32:57.020Z"
+    },
+    {
+      "wallet_address": "CVxUKFrWDYkE3gsZP9gyVmLD6XkXykk2ukKhAfNrJev8",
+      "llm_verdict": "insufficient_data",
+      "llm_confidence": 45,
+      "llm_reasoning": "Wallet has one trader sighting but most are holder actions with unavailable analytics, making it unreliable for classification.",
+      "recommended_action": "watch",
+      "batch_id": "wallet-review-1778603536365-c1-b2",
+      "reviewed_at_ms": 1778603577020,
+      "reviewed_at_iso": "2026-05-12T16:32:57.020Z"
+    },
+    {
+      "wallet_address": "CXVJewdc79TYR55sz4SGLSWUPz3r4LBJ9Mn93bZ8ZyAz",
+      "llm_verdict": "insufficient_data",
+      "llm_confidence": 40,
+      "llm_reasoning": "Wallet shows only holder sightings with no trader actions and unavailable GMGN analytics, making it impossible to assess trading quality.",
+      "recommended_action": "watch",
+      "batch_id": "wallet-review-1778603536365-c1-b3",
+      "reviewed_at_ms": 1778603596582,
+      "reviewed_at_iso": "2026-05-12T16:33:16.582Z"
+    },
+    {
+      "wallet_address": "DPwH9aWrYGSBqMiPNLMW4Hti1k1xgq64t781eycfLCp5",
+      "llm_verdict": "insufficient_data",
+      "llm_confidence": 40,
+      "llm_reasoning": "Only holder sightings observed with no trader actions and no wallet-level analytics available to evaluate trading performance.",
+      "recommended_action": "watch",
+      "batch_id": "wallet-review-1778603536365-c1-b3",
+      "reviewed_at_ms": 1778603596582,
+      "reviewed_at_iso": "2026-05-12T16:33:16.582Z"
+    },
+    {
+      "wallet_address": "DSUAixPqvUXFX46SvFm7LRYQkthpJom6XsjZn4vTkKaa",
+      "llm_verdict": "inflated_or_wash",
+      "llm_confidence": 70,
+      "llm_reasoning": "KOL-like wallet with positive PnL ($413) but all sightings are holds with no trader actions, indicating noisy KOL flow rather than genuine trading.",
+      "recommended_action": "demote",
+      "batch_id": "wallet-review-1778603536365-c1-b3",
+      "reviewed_at_ms": 1778603596582,
+      "reviewed_at_iso": "2026-05-12T16:33:16.582Z"
+    },
+    {
+      "wallet_address": "DWja6UWwLhX3uK4joHd7JwGHU2cpZP4cvevEQ69rxxqu",
+      "llm_verdict": "insufficient_data",
+      "llm_confidence": 45,
+      "llm_reasoning": "Holder-only sightings with no trader actions and unavailable GMGN analytics; cannot assess trading behavior despite positive PnL.",
+      "recommended_action": "watch",
+      "batch_id": "wallet-review-1778603536365-c1-b3",
+      "reviewed_at_ms": 1778603596582,
+      "reviewed_at_iso": "2026-05-12T16:33:16.582Z"
+    },
+    {
+      "wallet_address": "DxM1hfY8FQ8dNGrucuJzhJcF8KRbjk8WBwrgKvQ9spPv",
+      "llm_verdict": "inflated_or_wash",
+      "llm_confidence": 75,
+      "llm_reasoning": "KOL-like wallet with very high PnL ($28K) but all sightings are holds with no trader actions, indicating noisy KOL/influencer flow.",
+      "recommended_action": "demote",
+      "batch_id": "wallet-review-1778603536365-c1-b3",
+      "reviewed_at_ms": 1778603596582,
+      "reviewed_at_iso": "2026-05-12T16:33:16.582Z"
+    },
+    {
+      "wallet_address": "FYsgcNSoqZNcCXsyVvr2NWQToMJUqB2ZbTK7N1E8cqM",
+      "llm_verdict": "genuine_smart_trader",
+      "llm_confidence": 60,
+      "llm_reasoning": "Shows one sell action on a target token with positive PnL ($954.57) and recent activity, suggesting genuine micro-cap trading behavior.",
+      "recommended_action": "keep",
+      "batch_id": "wallet-review-1778603536365-c1-b3",
+      "reviewed_at_ms": 1778603596582,
+      "reviewed_at_iso": "2026-05-12T16:33:16.582Z"
+    },
+    {
+      "wallet_address": "FdwVhbBQhY9rwF5yaZwVH2SK6jhtxj67idgVrrGgAmKS",
+      "llm_verdict": "genuine_smart_trader",
+      "llm_confidence": 65,
+      "llm_reasoning": "Has a sell action on a target token with positive PnL ($104.06) and recent sightings, aligning with micro-cap trading strategy.",
+      "recommended_action": "keep",
+      "batch_id": "wallet-review-1778603536365-c1-b3",
+      "reviewed_at_ms": 1778603596582,
+      "reviewed_at_iso": "2026-05-12T16:33:16.582Z"
+    },
+    {
+      "wallet_address": "FjE4fajsdxowAohNztHL5MTgUEpNbuSR3QZK6tDVfh5t",
+      "llm_verdict": "insufficient_data",
+      "llm_confidence": 35,
+      "llm_reasoning": "Negative PnL with only holder sightings and no trader actions; insufficient context to classify as genuine trader or bot.",
+      "recommended_action": "watch",
+      "batch_id": "wallet-review-1778603536365-c1-b3",
+      "reviewed_at_ms": 1778603596582,
+      "reviewed_at_iso": "2026-05-12T16:33:16.582Z"
+    },
+    {
+      "wallet_address": "FpD6n8gfoZNxyAN6QqNH4TFQdV9vZEgcv5W4H2YL8k4X",
+      "llm_verdict": "inflated_or_wash",
+      "llm_confidence": 80,
+      "llm_reasoning": "KOL-like wallet with negative PnL (-$3568.80) and only holder sightings; fits the noisy KOL/influencer flow pattern to be avoided.",
+      "recommended_action": "remove",
+      "batch_id": "wallet-review-1778603536365-c1-b3",
+      "reviewed_at_ms": 1778603596582,
+      "reviewed_at_iso": "2026-05-12T16:33:16.582Z"
+    },
+    {
+      "wallet_address": "G4dZH7s2KZz1DJk1eJcsAAmMqtPrmeT2dbgrz5UNMYxq",
+      "llm_verdict": "genuine_smart_trader",
+      "llm_confidence": 55,
+      "llm_reasoning": "Has a sell action on a target token with negative PnL (-$85.63) but shows trading activity; limited confidence due to sparse data.",
+      "recommended_action": "watch",
+      "batch_id": "wallet-review-1778603536365-c1-b3",
+      "reviewed_at_ms": 1778603596582,
+      "reviewed_at_iso": "2026-05-12T16:33:16.582Z"
+    },
+    {
+      "wallet_address": "GGjSUonDLxoVpDYgJa9ZuudyRvHsRbtHegezdgwsf7be",
+      "llm_verdict": "insufficient_data",
+      "llm_confidence": 80,
+      "llm_reasoning": "Only holder sightings with no wallet-level analytics or trade data, making it impossible to assess trading quality.",
+      "recommended_action": "watch",
+      "batch_id": "wallet-review-1778603536365-c1-b4",
+      "reviewed_at_ms": 1778603613950,
+      "reviewed_at_iso": "2026-05-12T16:33:33.950Z"
+    },
+    {
+      "wallet_address": "GoonY5hPo63xAPCwkyWuFmQ57HWq8wj5Bevj2D222U4u",
+      "llm_verdict": "inflated_or_wash",
+      "llm_confidence": 70,
+      "llm_reasoning": "Negative PnL with all holder sightings, tags indicating bundler and paper hands behavior, and no trader actions recorded.",
+      "recommended_action": "demote",
+      "batch_id": "wallet-review-1778603536365-c1-b4",
+      "reviewed_at_ms": 1778603613950,
+      "reviewed_at_iso": "2026-05-12T16:33:33.950Z"
+    },
+    {
+      "wallet_address": "H2KAvWycyqeHhqkMC1f83Pwju3B2MztLYdXVpNMcDs2V",
+      "llm_verdict": "genuine_smart_trader",
+      "llm_confidence": 65,
+      "llm_reasoning": "Positive PnL and holds tokens at target market caps, but sparse data prevents definitive classification.",
+      "recommended_action": "watch",
+      "batch_id": "wallet-review-1778603536365-c1-b4",
+      "reviewed_at_ms": 1778603613950,
+      "reviewed_at_iso": "2026-05-12T16:33:33.950Z"
+    },
+    {
+      "wallet_address": "HEq5VR1iu2cMC899q76BCQnFTTJrtay7NZPzmhCAWtrQ",
+      "llm_verdict": "genuine_smart_trader",
+      "llm_confidence": 75,
+      "llm_reasoning": "High positive PnL, win rate 0.66, and a sell action recorded, indicating active trading with profits.",
+      "recommended_action": "keep",
+      "batch_id": "wallet-review-1778603536365-c1-b4",
+      "reviewed_at_ms": 1778603613950,
+      "reviewed_at_iso": "2026-05-12T16:33:33.950Z"
+    },
+    {
+      "wallet_address": "HW1wbyPSa7QTqjRzD4kCKZyBbXFzR8cA7sJqBrzrJ6o4",
+      "llm_verdict": "insufficient_data",
+      "llm_confidence": 75,
+      "llm_reasoning": "Only holder sightings with no wallet-level analytics or trade data, making it impossible to assess trading quality.",
+      "recommended_action": "watch",
+      "batch_id": "wallet-review-1778603536365-c1-b4",
+      "reviewed_at_ms": 1778603613950,
+      "reviewed_at_iso": "2026-05-12T16:33:33.950Z"
+    },
+    {
+      "wallet_address": "J3CuQHzVmSvrYSMhvUU2dTsZB9Z4R2UKENyhDiJ5W95K",
+      "llm_verdict": "inflated_or_wash",
+      "llm_confidence": 85,
+      "llm_reasoning": "KOL-like wallet with negative PnL and no trader actions, indicating noisy influencer flow.",
+      "recommended_action": "remove",
+      "batch_id": "wallet-review-1778603536365-c1-b4",
+      "reviewed_at_ms": 1778603613950,
+      "reviewed_at_iso": "2026-05-12T16:33:33.950Z"
+    },
+    {
+      "wallet_address": "J6kZjUBfRhgxXjcQWTyLJimZWKHT4evAJSmhN9rHAQkr",
+      "llm_verdict": "insufficient_data",
+      "llm_confidence": 70,
+      "llm_reasoning": "Only holder sightings with no wallet-level analytics or trade data, making it impossible to assess trading quality.",
+      "recommended_action": "watch",
+      "batch_id": "wallet-review-1778603536365-c1-b4",
+      "reviewed_at_ms": 1778603613950,
+      "reviewed_at_iso": "2026-05-12T16:33:33.950Z"
+    },
+    {
+      "wallet_address": "M8fe7UqgeFzw2arbSHCTLKyi5qW9KiC8bigC1TGS3G9",
+      "llm_verdict": "insufficient_data",
+      "llm_confidence": 75,
+      "llm_reasoning": "Only holder sightings with negative PnL and no wallet-level analytics or trade data.",
+      "recommended_action": "watch",
+      "batch_id": "wallet-review-1778603536365-c1-b4",
+      "reviewed_at_ms": 1778603613950,
+      "reviewed_at_iso": "2026-05-12T16:33:33.950Z"
+    },
+    {
+      "wallet_address": "RTYizu6bjvFTBfiS56cEoqkKRqk5xa5VBKsHQUeUNDs",
+      "llm_verdict": "insufficient_data",
+      "llm_confidence": 70,
+      "llm_reasoning": "Only holder sightings with no wallet-level analytics or trade data, making it impossible to assess trading quality.",
+      "recommended_action": "watch",
+      "batch_id": "wallet-review-1778603536365-c1-b4",
+      "reviewed_at_ms": 1778603613950,
+      "reviewed_at_iso": "2026-05-12T16:33:33.950Z"
+    },
+    {
+      "wallet_address": "Tq9FfKdMhnMyBZiyXAGCXb3m6RsyX2WhfXq8DZykafU",
+      "llm_verdict": "inflated_or_wash",
+      "llm_confidence": 65,
+      "llm_reasoning": "Negative PnL with tags indicating bundler and paper hands behavior, and minimal trader activity.",
+      "recommended_action": "demote",
+      "batch_id": "wallet-review-1778603536365-c1-b4",
+      "reviewed_at_ms": 1778603613950,
+      "reviewed_at_iso": "2026-05-12T16:33:33.950Z"
+    },
+    {
+      "wallet_address": "hnu69n6P5CgYXCtUKii9wgamqtDeTVHY3TVJ6HKt7wC",
+      "llm_verdict": "insufficient_data",
+      "llm_confidence": 30,
+      "llm_reasoning": "Only holder sightings with no trader actions and unavailable analytics; data too sparse to classify as a smart trader.",
+      "recommended_action": "watch",
+      "batch_id": "wallet-review-1778603536365-c1-b5",
+      "reviewed_at_ms": 1778603634584,
+      "reviewed_at_iso": "2026-05-12T16:33:54.584Z"
+    },
+    {
+      "wallet_address": "mh9XHevMtp3jpKx3nw4YwTcDYdWF2xUqk2johRAaSWs",
+      "llm_verdict": "insufficient_data",
+      "llm_confidence": 35,
+      "llm_reasoning": "Mostly holder sightings with one sell action; analytics unavailable, and tags suggest paper hands and bundler, not a clear smart trader.",
+      "recommended_action": "watch",
+      "batch_id": "wallet-review-1778603536365-c1-b5",
+      "reviewed_at_ms": 1778603634584,
+      "reviewed_at_iso": "2026-05-12T16:33:54.584Z"
+    },
+    {
+      "wallet_address": "sniper3k3WfE4CqDB5XdCC2S4wVu1kCRaXUPKQ1RKoS",
+      "llm_verdict": "bot_or_sniper",
+      "llm_confidence": 60,
+      "llm_reasoning": "Label and tags indicate sniper behavior with one high-value sell and positive PnL, but analytics unavailable and most sightings are holds.",
+      "recommended_action": "watch",
+      "batch_id": "wallet-review-1778603536365-c1-b5",
+      "reviewed_at_ms": 1778603634584,
+      "reviewed_at_iso": "2026-05-12T16:33:54.584Z"
+    },
+    {
+      "wallet_address": "suqh5sHtr8HyJ7q8scBimULPkPpA557prMG47xCHQfK",
+      "llm_verdict": "inflated_or_wash",
+      "llm_confidence": 55,
+      "llm_reasoning": "KOL-like wallet with only holder sightings and no trader actions; likely noisy KOL flow, not a profitable smart wallet.",
+      "recommended_action": "demote",
+      "batch_id": "wallet-review-1778603536365-c1-b5",
+      "reviewed_at_ms": 1778603634584,
+      "reviewed_at_iso": "2026-05-12T16:33:54.584Z"
+    },
+    {
+      "wallet_address": "undwZZbXFTXAizTeeNpmygJDa4pWopEr1UCDSWpyo4y",
+      "llm_verdict": "insufficient_data",
+      "llm_confidence": 40,
+      "llm_reasoning": "Mostly holder sightings with two sells; analytics unavailable and tags suggest bundler/paper hands, but insufficient data for confident classification.",
+      "recommended_action": "watch",
+      "batch_id": "wallet-review-1778603536365-c1-b5",
+      "reviewed_at_ms": 1778603634584,
+      "reviewed_at_iso": "2026-05-12T16:33:54.584Z"
+    },
+    {
+      "wallet_address": "zephyrni115ZD4MvotSF8Xi92yennkdpT5nJkAjGdSU",
+      "llm_verdict": "insufficient_data",
+      "llm_confidence": 45,
+      "llm_reasoning": "Two sells including a large one, but mostly holder sightings and analytics unavailable; tags suggest bundler/paper hands.",
+      "recommended_action": "watch",
+      "batch_id": "wallet-review-1778603536365-c1-b5",
+      "reviewed_at_ms": 1778603634584,
+      "reviewed_at_iso": "2026-05-12T16:33:54.584Z"
+    },
+    {
+      "wallet_address": "zzzCaz9jTFBka6vypB26BeyKK9BTqyFYyFzqZtM6sUa",
+      "llm_verdict": "insufficient_data",
+      "llm_confidence": 25,
+      "llm_reasoning": "Only holder sightings with no trader actions and analytics unavailable; no evidence of smart trading.",
+      "recommended_action": "watch",
+      "batch_id": "wallet-review-1778603536365-c1-b5",
+      "reviewed_at_ms": 1778603634584,
+      "reviewed_at_iso": "2026-05-12T16:33:54.584Z"
+    },
+    {
+      "wallet_address": "CRehX3UNi4MyyQagMz7MyfiWrN9ZynE6v2eNZ2ffrPD1",
+      "llm_verdict": "insufficient_data",
+      "llm_confidence": 30,
+      "llm_reasoning": "All holder sightings, no trader actions, and analytics unavailable; insufficient data for classification.",
+      "recommended_action": "watch",
+      "batch_id": "wallet-review-1778603536365-c1-b5",
+      "reviewed_at_ms": 1778603634584,
+      "reviewed_at_iso": "2026-05-12T16:33:54.584Z"
+    },
+    {
+      "wallet_address": "FJTe17tm2ofTRUsnw4TN6nSQSjYhfaw6wFGZRQJDdBZN",
+      "llm_verdict": "genuine_smart_trader",
+      "llm_confidence": 65,
+      "llm_reasoning": "Has buy and sell actions on target mcap token with positive PnL and no KOL flags; sparse sightings but shows active trading.",
+      "recommended_action": "watch",
+      "batch_id": "wallet-review-1778603536365-c1-b5",
+      "reviewed_at_ms": 1778603634584,
+      "reviewed_at_iso": "2026-05-12T16:33:54.584Z"
+    },
+    {
+      "wallet_address": "HtwoXN4SeA4NDYMSwLc2fAYsXys3QUeVt78KDwFPYk3E",
+      "llm_verdict": "insufficient_data",
+      "llm_confidence": 30,
+      "llm_reasoning": "Only holder sightings with no trader actions and analytics unavailable; no evidence of smart trading.",
+      "recommended_action": "watch",
+      "batch_id": "wallet-review-1778603536365-c1-b5",
+      "reviewed_at_ms": 1778603634584,
+      "reviewed_at_iso": "2026-05-12T16:33:54.584Z"
+    },
+    {
+      "wallet_address": "J2ECnk4MJQ8boxN77ss8fTkQRQxG7JmEUEGbARjxBPaz",
+      "llm_verdict": "insufficient_data",
+      "llm_confidence": 30,
+      "llm_reasoning": "All stored sightings are holder-only from endpoints with unavailable trade amounts, and wallet-level analytics are not available, making it impossible to assess trading behavior or profitability.",
+      "recommended_action": "watch",
+      "batch_id": "wallet-review-1778603536365-c1-b6",
+      "reviewed_at_ms": 1778603655580,
+      "reviewed_at_iso": "2026-05-12T16:34:15.580Z"
+    },
+    {
+      "wallet_address": "Nsgx8SAf9jSmwqewSttpXbEKAHSPZPae2gFLfj6Yu44",
+      "llm_verdict": "genuine_smart_trader",
+      "llm_confidence": 65,
+      "llm_reasoning": "The wallet shows positive PnL ($82.14) from two recorded sells, with holdings in target micro-cap tokens, suggesting active trading aligned with the strategy despite sparse local context.",
+      "recommended_action": "keep",
+      "batch_id": "wallet-review-1778603536365-c1-b6",
+      "reviewed_at_ms": 1778603655580,
+      "reviewed_at_iso": "2026-05-12T16:34:15.580Z"
+    },
+    {
+      "wallet_address": "1aC2FgH1tujX87Bv9yMVbda2sPiRDNCsjMJoJjw3n6C",
+      "llm_verdict": "insufficient_data",
+      "llm_confidence": 25,
+      "llm_reasoning": "Only one recorded sell with negative PnL, all other sightings are holder endpoints with unavailable amounts, and no wallet analytics are available to validate trading proficiency.",
+      "recommended_action": "watch",
+      "batch_id": "wallet-review-1778603536365-c1-b6",
+      "reviewed_at_ms": 1778603655580,
+      "reviewed_at_iso": "2026-05-12T16:34:15.580Z"
+    },
+    {
+      "wallet_address": "2HpEemeT7HawRakzj3ckwfPxmgPnji6z7z9yox1sNR8D",
+      "llm_verdict": "insufficient_data",
+      "llm_confidence": 20,
+      "llm_reasoning": "All sightings are holder endpoints with no recorded trades, and despite positive PnL from unknown sources, the local context is too sparse to confirm active trading behavior.",
+      "recommended_action": "watch",
+      "batch_id": "wallet-review-1778603536365-c1-b6",
+      "reviewed_at_ms": 1778603655580,
+      "reviewed_at_iso": "2026-05-12T16:34:15.580Z"
+    },
+    {
+      "wallet_address": "2dEpwaujMteZsFYCX3hwaavYKkU7kRwAwJe9XGuWNRGA",
+      "llm_verdict": "genuine_smart_trader",
+      "llm_confidence": 75,
+      "llm_reasoning": "Positive PnL ($256.03) from two recorded sells, with holdings in micro-cap tokens and active engagement, indicating profitable trading that aligns with the target strategy.",
+      "recommended_action": "keep",
+      "batch_id": "wallet-review-1778603536365-c1-b6",
+      "reviewed_at_ms": 1778603655580,
+      "reviewed_at_iso": "2026-05-12T16:34:15.580Z"
+    },
+    {
+      "wallet_address": "5B52w1ZW9tuwUduueP5J7HXz5AcGfruGoX6YoAudvyxG",
+      "llm_verdict": "inflated_or_wash",
+      "llm_confidence": 70,
+      "llm_reasoning": "The wallet is labeled as KOL-like with positive PnL but has no stored trader actions and primarily holder sightings, suggesting noisy influencer flow rather than genuine smart trading.",
+      "recommended_action": "demote",
+      "batch_id": "wallet-review-1778603536365-c1-b6",
+      "reviewed_at_ms": 1778603655580,
+      "reviewed_at_iso": "2026-05-12T16:34:15.580Z"
+    },
+    {
+      "wallet_address": "71pAfN1nJhcLaezSRYvwdsNFE9PnY9hNfcxB4nZ1gdAp",
+      "llm_verdict": "insufficient_data",
+      "llm_confidence": 20,
+      "llm_reasoning": "Only recorded sells with negative PnL and no holder sightings or wallet analytics, making it impossible to assess overall trading strategy or profitability.",
+      "recommended_action": "watch",
+      "batch_id": "wallet-review-1778603536365-c1-b6",
+      "reviewed_at_ms": 1778603655580,
+      "reviewed_at_iso": "2026-05-12T16:34:15.580Z"
+    },
+    {
+      "wallet_address": "2NuAgVk3hcb7s4YvP4GjV5fD8eDvZQv5wuN6ZC8igRfV",
+      "llm_verdict": "genuine_smart_trader",
+      "llm_confidence": 85,
+      "llm_reasoning": "GMGN and OKX analytics confirm high win rate (43-56%) and preferred buying below 100K market cap, with profitable trading activity despite sparse local sightings.",
+      "recommended_action": "promote",
+      "batch_id": "wallet-review-1778603536365-c1-b6",
+      "reviewed_at_ms": 1778603655580,
+      "reviewed_at_iso": "2026-05-12T16:34:15.580Z"
+    },
+    {
+      "wallet_address": "2ji39D4iDuDR1m7rpJcS5ci86PLgBQkWPgwya8YQvY4h",
+      "llm_verdict": "genuine_smart_trader",
+      "llm_confidence": 80,
+      "llm_reasoning": "Wallet analytics show strong win rate (57-66%) and preferred sub-100K market cap trading, with profitable activity and alignment to the target strategy.",
+      "recommended_action": "promote",
+      "batch_id": "wallet-review-1778603536365-c1-b6",
+      "reviewed_at_ms": 1778603655580,
+      "reviewed_at_iso": "2026-05-12T16:34:15.580Z"
+    },
+    {
+      "wallet_address": "43QmFc2QPPGyMrSNuPnhvfs8BFW1XVZYFdbwURtWoo9x",
+      "llm_verdict": "genuine_smart_trader",
+      "llm_confidence": 85,
+      "llm_reasoning": "GMGN and OKX data indicate high win rate (65-61%) and consistent profitable trading below 100K market cap, strongly supporting classification as a smart wallet.",
+      "recommended_action": "promote",
+      "batch_id": "wallet-review-1778603536365-c1-b6",
+      "reviewed_at_ms": 1778603655580,
+      "reviewed_at_iso": "2026-05-12T16:34:15.580Z"
+    },
+    {
+      "wallet_address": "55ZQuSoWHxHkCxzZvU4QP6FyNAcc6y62d3FKiEghPzAH",
+      "llm_verdict": "inflated_or_wash",
+      "llm_confidence": 85,
+      "llm_reasoning": "GMGN analytics indicate a profitable trader with high win rate and activity in sub-100K mcap tokens, but harvester data only shows holder sightings with negative PnL and zero buy/sell actions, suggesting wallet is primarily a holder or subject to wash trading, not an active smart trader for the target strategy.",
+      "recommended_action": "remove",
+      "batch_id": "wallet-review-1778603536365-c1-b7",
+      "reviewed_at_ms": 1778603663513,
+      "reviewed_at_iso": "2026-05-12T16:34:23.513Z"
+    },
+    {
+      "wallet_address": "6Dt9J7TXM3eqyQBAZMbGJCV6VsP13WVStwPJnLPFtw2Y",
+      "llm_verdict": "genuine_smart_trader",
+      "llm_confidence": 80,
+      "llm_reasoning": "GMGN analytics confirm profitable trading with a preference for 100K-1M mcap tokens and high win rate, aligning with the target strategy, though harvester context is sparse with only holder sightings and unavailable trade amounts.",
+      "recommended_action": "keep",
+      "batch_id": "wallet-review-1778603536365-c1-b7",
+      "reviewed_at_ms": 1778603663513,
+      "reviewed_at_iso": "2026-05-12T16:34:23.513Z"
+    }
+  ]
+}

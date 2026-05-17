@@ -1,8 +1,9 @@
-import { escapeHtml, fmtPct, fmtSol, fmtUsd, short } from '../format.js';
+import { escapeHtml, fmtPct, fmtSol, fmtUsd, gmgnWalletLink, short } from '../format.js';
 import { numSetting, boolSetting, setting, activeStrategy, allStrategies } from '../db/settings.js';
-import { openPositionCount, tradingMode, allPositions } from '../db/positions.js';
+import { openPositionCount, tradingMode, allPositions, openPositions } from '../db/positions.js';
 import { savedWallets } from '../enrichment/wallets.js';
 import { gmgnStatusText } from '../enrichment/gmgn.js';
+import { liveWalletPubkey } from '../liveExecutor.js';
 import { formatPosition } from './format.js';
 import { ENABLE_LLM, LLM_API_KEY } from '../config.js';
 
@@ -90,6 +91,9 @@ export const strategyNumericLabels = {
   partial_tp_at_percent: 'partial TP trigger percent',
   partial_tp_sell_percent: 'partial TP sell percent',
   max_hold_ms: 'maximum hold milliseconds',
+  max_hold_if_no_tp_ms: 'maximum hold milliseconds if TP/trailing not reached',
+  breakeven_after_profit_percent: 'breakeven arm profit percent',
+  breakeven_lock_percent: 'breakeven lock floor percent',
 };
 
 export function filtersKeyboard() {
@@ -121,21 +125,42 @@ export function agentText() {
     `Agent: <b>${boolSetting('agent_enabled', true) ? 'on' : 'off'}</b>`,
     `Mode: <b>${escapeHtml(tradingMode())}</b>`,
     `LLM: <b>${strat.use_llm && ENABLE_LLM && LLM_API_KEY ? 'configured' : 'disabled'}</b>`,
+    liveWalletText(),
     `Confidence: ${fmtPct(strat.llm_min_confidence || numSetting('llm_min_confidence', 75))}`,
+    `LLM timeout: ${Math.round(numSetting('llm_timeout_ms', 90000) / 1000)}s`,
     `Open positions: ${openPositionCount()}/${strat.max_open_positions || 'unlimited'}`,
     `Batch candidates: ${numSetting('llm_candidate_pick_count', 10)}`,
     `Candidate freshness: ${Math.round(numSetting('llm_candidate_max_age_ms', 600000) / 1000)}s`,
     `Size: ${fmtSol(strat.position_size_sol)} SOL`,
     `TP/SL: ${fmtPct(strat.tp_percent)} / ${fmtPct(strat.sl_percent)}`,
     `Trailing: ${strat.trailing_enabled ? fmtPct(strat.trailing_percent) : 'off'}`,
+    `Dry-run slippage: ${numSetting('dry_run_slippage_pct', 1.0)}%`,
+    `Dry-run fee: ${numSetting('dry_run_fee_pct', 0.2)}% (round-trip)`,
   ].join('\n');
 }
 
+export function liveWalletText(address = liveWalletPubkey()) {
+  if (!address) return 'Live wallet: not loaded';
+  return `Live wallet: <code>${escapeHtml(address)}</code>`;
+}
+
+export function liveWalletButton(address = liveWalletPubkey()) {
+  if (!address) return null;
+  return { text: 'GMGN Wallet PnL', url: gmgnWalletLink(address) };
+}
+
+export function liveWalletKeyboardRow(address = liveWalletPubkey()) {
+  const button = liveWalletButton(address);
+  return button ? [button] : null;
+}
+
 export function agentKeyboard() {
+  const walletRow = liveWalletKeyboardRow();
   return {
     reply_markup: {
       inline_keyboard: [
         [{ text: 'Toggle Agent', callback_data: 'toggle:agent' }],
+        ...(walletRow ? [walletRow] : []),
         [
           { text: 'Dry Run', callback_data: 'set:trading_mode:dry_run' },
           { text: 'Confirm', callback_data: 'set:trading_mode:confirm' },
@@ -154,6 +179,11 @@ export function agentKeyboard() {
           { text: 'Fresh 5m', callback_data: 'set:llm_candidate_max_age_ms:300000' },
           { text: 'Fresh 10m', callback_data: 'set:llm_candidate_max_age_ms:600000' },
           { text: 'Fresh 20m', callback_data: 'set:llm_candidate_max_age_ms:1200000' },
+        ],
+        [
+          { text: 'LLM 60s', callback_data: 'set:llm_timeout_ms:60000' },
+          { text: 'LLM 90s', callback_data: 'set:llm_timeout_ms:90000' },
+          { text: 'LLM 120s', callback_data: 'set:llm_timeout_ms:120000' },
         ],
         [{ text: 'Back', callback_data: 'menu:main' }],
       ],
@@ -190,6 +220,22 @@ export function positionsText() {
   return `📍 <b>Positions</b>\n\n${text}`;
 }
 
+export function positionsKeyboard() {
+  const open = openPositions().slice(0, 12);
+  const rows = open.map(pos => [{
+    text: `📌 View #${pos.id} ${pos.symbol || pos.mint.slice(0, 6)}`,
+    callback_data: `pos:${pos.id}`,
+  }]);
+  return {
+    reply_markup: {
+      inline_keyboard: [
+        ...rows,
+        [{ text: 'Back', callback_data: 'menu:main' }],
+      ],
+    },
+  };
+}
+
 export function strategyMenuText() {
   const strat = activeStrategy();
   const all = allStrategies();
@@ -208,7 +254,11 @@ export function strategyMenuText() {
     strat.min_holders > 0 ? `Min holders: ${strat.min_holders}` : null,
     strat.max_ath_distance_pct < 0 ? `Max ATH distance: ${strat.max_ath_distance_pct}%` : null,
     strat.partial_tp ? `Partial TP: ${strat.partial_tp_sell_percent}% at ${fmtPct(strat.partial_tp_at_percent)}` : null,
+    Number(strat.breakeven_after_profit_percent || 0) > 0
+      ? `Breakeven lock: arm at ${fmtPct(strat.breakeven_after_profit_percent)}, floor ${fmtPct(strat.breakeven_lock_percent || 0)}`
+      : null,
     strat.max_hold_ms > 0 ? `Max hold: ${Math.round(strat.max_hold_ms / 60000)}m` : null,
+    strat.max_hold_if_no_tp_ms > 0 ? `No-TP time stop: ${Math.round(strat.max_hold_if_no_tp_ms / 60000)}m` : null,
     strat.use_llm ? `LLM: yes (min ${strat.llm_min_confidence}%)` : 'LLM: no (rule-based)',
     '',
     ...all.map(s => `${s.enabled ? '▶' : '○'} ${s.name}`),
@@ -250,6 +300,13 @@ export function strategyKeyboard() {
     [
       { text: `Partial TP ${strat.partial_tp ? 'on' : 'off'}`, callback_data: 'stratcfg:partial_tp' },
       { text: `Max Hold ${strat.max_hold_ms > 0 ? Math.round(strat.max_hold_ms/60000)+'m' : 'off'}`, callback_data: 'stratinput:max_hold_ms' },
+    ],
+    [
+      { text: `No TP Stop ${strat.max_hold_if_no_tp_ms > 0 ? Math.round(strat.max_hold_if_no_tp_ms/60000)+'m' : 'off'}`, callback_data: 'stratinput:max_hold_if_no_tp_ms' },
+    ],
+    [
+      { text: `BE Arm ${Number(strat.breakeven_after_profit_percent || 0) > 0 ? '+' + strat.breakeven_after_profit_percent + '%' : 'off'}`, callback_data: 'stratinput:breakeven_after_profit_percent' },
+      { text: `BE Floor ${strat.breakeven_lock_percent || 0}%`, callback_data: 'stratinput:breakeven_lock_percent' },
     ],
     [
       { text: `Claim Fee ${fmtSol(strat.min_fee_claim_sol)} SOL`, callback_data: 'stratinput:min_fee_claim_sol' },

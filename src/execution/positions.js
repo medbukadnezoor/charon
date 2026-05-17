@@ -1,53 +1,65 @@
 import { now, json } from '../utils.js';
-import { numSetting, boolSetting, strategyById } from '../db/settings.js';
+import { numSetting, strategyById, activeStrategy } from '../db/settings.js';
 import { db } from '../db/connection.js';
-import { firstPositiveNumber, marketCapFromGmgn, tokenPriceFromGmgn } from '../utils.js';
+import { firstPositiveNumber } from '../utils.js';
 import { fetchGmgnTokenInfo } from '../enrichment/gmgn.js';
 import { fetchJupiterAsset, fetchJupiterHolders, fetchJupiterChartContext, fetchJupiterWalletPnl } from '../enrichment/jupiter.js';
-import { liveWalletPubkey } from '../liveExecutor.js';
+import { fetchLiveTokenBalance, liveWalletPubkey } from '../liveExecutor.js';
 import { fetchSavedWalletExposure } from '../enrichment/wallets.js';
 import { filterCandidate } from '../pipeline/candidateBuilder.js';
 import { openPositions } from '../db/positions.js';
 import { updateCandidateSnapshot } from '../db/candidates.js';
 import { trending } from '../signals/trending.js';
 import { executeLiveSell } from './router.js';
-import { sendPositionExit } from '../telegram/send.js';
+import { sampleMarketCap } from '../enrichment/mcapSampler.js';
+import { recordDeployerObservation } from '../db/blacklist.js';
 
 export async function freshEntryMarket(mint, candidate) {
-  const gmgn = await fetchGmgnTokenInfo(mint, false);
-  const asset = await fetchJupiterAsset(mint, { useCache: false });
-  const priceUsd = firstPositiveNumber(tokenPriceFromGmgn(gmgn), asset?.usdPrice, candidate.metrics?.priceUsd);
-  const marketCapUsd = firstPositiveNumber(
-    marketCapFromGmgn(gmgn),
-    asset?.mcap,
-    asset?.fdv,
-    candidate.metrics?.marketCapUsd,
-    candidate.metrics?.graduatedMarketCapUsd,
-  );
-  return { gmgn, asset, priceUsd, marketCapUsd, refreshedAtMs: now() };
+  const mcapSample = await sampleMarketCap({
+    mint,
+    context: 'fresh_entry_market',
+    trendingToken: trending.get(mint) || candidate?.trending || null,
+    fallbackMarketCapUsd: firstPositiveNumber(candidate?.metrics?.marketCapUsd, candidate?.metrics?.graduatedMarketCapUsd),
+    fallbackPriceUsd: candidate?.metrics?.priceUsd,
+    useCache: false,
+  });
+  return {
+    gmgn: mcapSample.gmgn,
+    asset: mcapSample.jupiterAsset,
+    priceUsd: mcapSample.priceUsd,
+    marketCapUsd: mcapSample.marketCapUsd,
+    mcapSample,
+    refreshedAtMs: mcapSample.sampledAtMs,
+  };
 }
 
 export async function refreshCandidateForExecution(row) {
   const candidate = row.candidate;
   const mint = candidate.token.mint;
-  const gmgn = await fetchGmgnTokenInfo(mint, false);
-  const asset = await fetchJupiterAsset(mint, { useCache: false });
+  const selectedTrending = trending.get(mint) || candidate.trending || null;
+  const strat = activeStrategy();
+  const mcapSample = await sampleMarketCap({
+    mint,
+    context: 'pre_execution',
+    trendingToken: selectedTrending,
+    fallbackMarketCapUsd: firstPositiveNumber(candidate.metrics?.marketCapUsd, candidate.metrics?.graduatedMarketCapUsd),
+    fallbackPriceUsd: candidate.metrics?.priceUsd,
+    useCache: false,
+    thresholds: {
+      minMarketCapUsd: strat.min_mcap_usd,
+      maxMarketCapUsd: strat.max_mcap_usd,
+    },
+  });
+  const gmgn = mcapSample.gmgn;
+  const asset = mcapSample.jupiterAsset;
   const holders = await fetchJupiterHolders(mint);
   const chart = await fetchJupiterChartContext(mint);
-  const selectedTrending = trending.get(mint) || candidate.trending || null;
   const selectedHolders = holders?.holders?.length ? holders : candidate.holders;
   const selectedSavedWalletExposure = selectedHolders
     ? await fetchSavedWalletExposure(mint, selectedHolders)
     : candidate.savedWalletExposure;
-  const priceUsd = firstPositiveNumber(tokenPriceFromGmgn(gmgn), asset?.usdPrice, selectedTrending?.price, candidate.metrics?.priceUsd);
-  const marketCapUsd = firstPositiveNumber(
-    marketCapFromGmgn(gmgn),
-    asset?.mcap,
-    asset?.fdv,
-    selectedTrending?.market_cap,
-    candidate.metrics?.marketCapUsd,
-    candidate.metrics?.graduatedMarketCapUsd,
-  );
+  const priceUsd = mcapSample.priceUsd;
+  const marketCapUsd = mcapSample.marketCapUsd;
   const refreshed = {
     ...candidate,
     token: {
@@ -77,10 +89,14 @@ export async function refreshCandidateForExecution(row) {
     holders: selectedHolders,
     chart,
     savedWalletExposure: selectedSavedWalletExposure,
+    mcapSample,
     executionRefresh: {
-      refreshedAtMs: now(),
+      refreshedAtMs: mcapSample.sampledAtMs,
       source: 'pre_execution',
       marketCapUsd,
+      marketCapSource: mcapSample.source,
+      marketCapDisagreementPercent: mcapSample.disagreementPercent,
+      mcapSample,
       priceUsd,
       liquidityUsd: Number(gmgn?.liquidity ?? asset?.liquidity ?? selectedTrending?.liquidity ?? 0),
       holdersRefreshed: Boolean(holders?.holders?.length),
@@ -107,23 +123,81 @@ export async function refreshCandidateForExecution(row) {
 
 const sellInProgress = new Set();
 
-export async function refreshPosition(position, { autoExit = true, jupiterPnl = null } = {}) {
-  const asset = await fetchJupiterAsset(position.mint);
-  const price = firstPositiveNumber(asset?.usdPrice, position.high_water_price, position.entry_price);
-  const mcap = firstPositiveNumber(asset?.mcap, asset?.fdv, position.high_water_mcap, position.entry_mcap);
+export function positionScopedPnl(position, mcap) {
+  const pnlPercent = (Number(mcap) / Number(position.entry_mcap) - 1) * 100;
+  return {
+    pnlPercent,
+    pnlSol: Number(position.size_sol) * pnlPercent / 100,
+  };
+}
+
+export function classifyLiveSellReconciliation(balanceRaw, dustThresholdRaw) {
+  if (balanceRaw == null) return { state: 'unknown', remainingRaw: null, hasResidual: false };
+  const remainingRaw = Number(balanceRaw);
+  if (!Number.isFinite(remainingRaw)) return { state: 'unknown', remainingRaw: null, hasResidual: false };
+  const hasResidual = remainingRaw > Number(dustThresholdRaw);
+  return {
+    state: hasResidual ? 'residual' : 'matched',
+    remainingRaw,
+    hasResidual,
+  };
+}
+
+function numericOrFallback(value, fallback = 0) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : fallback;
+}
+
+function recordHardLossObservation(position, { exitReason, pnlPercent, pnlSol, mcapSample }) {
+  try {
+    recordDeployerObservation(position, { exitReason, pnlPercent, pnlSol, mcapSample });
+  } catch (err) {
+    console.log(`[position] ${position.id} deployer observation failed: ${err.message}`);
+  }
+}
+
+export async function refreshPosition(position, {
+  autoExit = true,
+  jupiterPnl = null,
+  fetchAsset = fetchJupiterAsset,
+  fetchGmgn = fetchGmgnTokenInfo,
+  fetchMcapSample = sampleMarketCap,
+  executeSell = executeLiveSell,
+  fetchTokenBalance = fetchLiveTokenBalance,
+  sendReconciliationAlert = null,
+} = {}) {
+  const selectedTrending = trending.get(position.mint) || null;
+  const mcapSample = await fetchMcapSample({
+    mint: position.mint,
+    context: 'position_monitor',
+    trendingToken: selectedTrending,
+    useCache: false,
+    fetchGmgn,
+    fetchAsset,
+    fallbackReadings: [
+      { source: 'position_high_water_mcap', marketCapUsd: position.high_water_mcap, priceUsd: position.high_water_price },
+      { source: 'position_entry_mcap', marketCapUsd: position.entry_mcap, priceUsd: position.entry_price },
+    ],
+  });
+  const asset = mcapSample.jupiterAsset;
+  const price = firstPositiveNumber(mcapSample.priceUsd, position.high_water_price, position.entry_price);
+  const mcap = firstPositiveNumber(mcapSample.marketCapUsd, position.high_water_mcap, position.entry_mcap);
   if (!Number.isFinite(Number(mcap)) || !Number.isFinite(Number(position.entry_mcap)) || Number(position.entry_mcap) <= 0) {
     return null;
   }
   const highWaterMcap = Math.max(Number(position.high_water_mcap || 0), Number(mcap));
   const highWaterPrice = Math.max(Number(position.high_water_price || 0), Number(price || 0));
-  let pnlPercent = (Number(mcap) / Number(position.entry_mcap) - 1) * 100;
-  let pnlSol = Number(position.size_sol) * pnlPercent / 100;
-  if (jupiterPnl && Number.isFinite(Number(jupiterPnl.totalPnlPercentageNative))) {
-    pnlPercent = Number(jupiterPnl.totalPnlPercentageNative);
-    pnlSol = Number.isFinite(Number(jupiterPnl.totalPnlNative)) ? Number(jupiterPnl.totalPnlNative) : pnlSol;
-  }
+  const scopedPnl = positionScopedPnl(position, mcap);
+  let pnlPercent = scopedPnl.pnlPercent;
+  let pnlSol = scopedPnl.pnlSol;
   const tpHit = pnlPercent >= Number(position.tp_percent);
-  const slHit = pnlPercent <= Number(position.sl_percent);
+  const hasPersistedEffectiveSl = position.effective_sl_percent !== null
+    && position.effective_sl_percent !== undefined
+    && position.effective_sl_percent !== '';
+  const effectiveSlPercent = hasPersistedEffectiveSl && Number.isFinite(Number(position.effective_sl_percent))
+    ? Number(position.effective_sl_percent)
+    : Number(position.sl_percent);
+  const slHit = pnlPercent <= effectiveSlPercent;
   const trailingArmed = position.trailing_armed || (position.trailing_enabled && tpHit);
   const trailDrop = highWaterMcap > 0 ? (Number(mcap) / highWaterMcap - 1) * 100 : 0;
   const trailingHit = trailingArmed && position.trailing_enabled && trailDrop <= -Math.abs(Number(position.trailing_percent));
@@ -132,12 +206,36 @@ export async function refreshPosition(position, { autoExit = true, jupiterPnl = 
 
   // Max hold time check
   const strat = strategyById(position.strategy_id);
+  const breakevenAfterProfitPercent = numericOrFallback(strat?.breakeven_after_profit_percent, 0);
+  const existingBreakevenLockPercent = numericOrFallback(position.breakeven_lock_percent, NaN);
+  const configuredBreakevenLockPercent = numericOrFallback(strat?.breakeven_lock_percent, 0);
+  const breakevenLockPercent = Number.isFinite(existingBreakevenLockPercent)
+    ? existingBreakevenLockPercent
+    : configuredBreakevenLockPercent;
+  let breakevenArmed = Boolean(position.breakeven_armed);
+  let breakevenArmedAtMs = position.breakeven_armed_at_ms ?? null;
+
+  if (!breakevenArmed && breakevenAfterProfitPercent > 0 && pnlPercent >= breakevenAfterProfitPercent) {
+    breakevenArmed = true;
+    breakevenArmedAtMs = now();
+    db.prepare(`
+      UPDATE dry_run_positions
+      SET breakeven_armed = 1, breakeven_armed_at_ms = ?, breakeven_lock_percent = ?
+      WHERE id = ?
+    `).run(breakevenArmedAtMs, breakevenLockPercent, position.id);
+    console.log(`[position] ${position.id} breakeven lock armed at ${pnlPercent.toFixed(1)}% (floor ${breakevenLockPercent}%)`);
+  }
+
   if (strat?.max_hold_ms > 0 && (now() - position.opened_at_ms) >= strat.max_hold_ms) {
     exitReason = 'MAX_HOLD';
   }
 
+  if (!exitReason && breakevenArmed && pnlPercent <= breakevenLockPercent) {
+    exitReason = 'BREAKEVEN_LOCK';
+  }
+
   // Partial TP check
-  if (!exitReason && strat?.partial_tp && !position.partial_tp_done && pnlPercent >= strat.partial_tp_at_percent) {
+  if (!exitReason && breakevenAfterProfitPercent <= 0 && strat?.partial_tp && !position.partial_tp_done && pnlPercent >= strat.partial_tp_at_percent) {
     db.prepare('UPDATE dry_run_positions SET partial_tp_done = 1 WHERE id = ?').run(position.id);
     console.log(`[position] ${position.id} partial TP at ${pnlPercent.toFixed(1)}% (${strat.partial_tp_sell_percent}% sell)`);
     if (position.execution_mode === 'live' && position.token_amount_raw) {
@@ -164,8 +262,15 @@ export async function refreshPosition(position, { autoExit = true, jupiterPnl = 
   // Standard exit checks
   if (!exitReason) {
     if (slHit) exitReason = 'SL';
-    else if (tpHit && !position.trailing_enabled) exitReason = 'TP';
+    else if (tpHit && !position.trailing_enabled && breakevenAfterProfitPercent <= 0) exitReason = 'TP';
     else if (trailingHit) exitReason = 'TRAILING_TP';
+  }
+
+  if (!exitReason && strat?.max_hold_if_no_tp_ms > 0) {
+    const positionAgeMs = now() - Number(position.opened_at_ms);
+    if (positionAgeMs >= Number(strat.max_hold_if_no_tp_ms) && !trailingArmed) {
+      exitReason = 'TIME_STOP_NO_TP';
+    }
   }
 
   // Live exits will override these with realized SOL values
@@ -174,16 +279,25 @@ export async function refreshPosition(position, { autoExit = true, jupiterPnl = 
 
   db.prepare(`
     UPDATE dry_run_positions
-    SET high_water_mcap = ?, high_water_price = ?, trailing_armed = ?
+    SET high_water_mcap = ?, high_water_price = ?, trailing_armed = ?,
+        breakeven_armed = ?, breakeven_armed_at_ms = ?, breakeven_lock_percent = ?
     WHERE id = ?
-  `).run(highWaterMcap, highWaterPrice, trailingArmed ? 1 : 0, position.id);
+  `).run(
+    highWaterMcap,
+    highWaterPrice,
+    trailingArmed ? 1 : 0,
+    breakevenArmed ? 1 : 0,
+    breakevenArmedAtMs,
+    breakevenLockPercent,
+    position.id,
+  );
 
   if (exitReason && autoExit && position.execution_mode === 'live') {
     if (sellInProgress.has(position.id)) return { ...position, exitReason: null };
     sellInProgress.add(position.id);
     let sell;
     try {
-      sell = await executeLiveSell(position, exitReason);
+      sell = await executeSell(position, exitReason);
     } finally {
       sellInProgress.delete(position.id);
     }
@@ -192,6 +306,69 @@ export async function refreshPosition(position, { autoExit = true, jupiterPnl = 
     if (receivedSol != null) {
       finalPnlSol = receivedSol - Number(position.size_sol);
       finalPnlPercent = (receivedSol / Number(position.size_sol) - 1) * 100;
+    }
+    const dustThresholdRaw = numSetting('live_sell_dust_threshold_raw', 1000);
+    const balanceRaw = await fetchTokenBalance(position.mint);
+    const reconciliation = classifyLiveSellReconciliation(balanceRaw, dustThresholdRaw);
+    const alertPayload = {
+      position,
+      expectedSellAmount: position.token_amount_raw || position.token_amount_est,
+      remainingBalance: reconciliation.remainingRaw,
+      signature: sell.signature,
+      reason: exitReason,
+    };
+    const alertFn = sendReconciliationAlert || (async (payload) => {
+      const { sendLiveSellReconciliationAlert } = await import('../telegram/send.js');
+      return sendLiveSellReconciliationAlert(payload);
+    });
+    if (reconciliation.state === 'unknown') {
+      await alertFn({ ...alertPayload, balanceCheckFailed: true });
+    }
+    if (reconciliation.hasResidual) {
+      db.prepare(`
+        UPDATE dry_run_positions
+        SET status = 'partial_exit', token_amount_raw = ?, exit_price = ?, exit_mcap = ?,
+            exit_reason = ?, pnl_percent = ?, pnl_sol = ?, exit_signature = ?
+        WHERE id = ?
+      `).run(String(reconciliation.remainingRaw), price, mcap, exitReason, finalPnlPercent, finalPnlSol, sell.signature, position.id);
+      db.prepare(`
+        INSERT INTO dry_run_trades (position_id, mint, side, at_ms, price, mcap, size_sol, token_amount_est, reason, payload_json)
+        VALUES (?, ?, 'sell', ?, ?, ?, ?, ?, ?, ?)
+      `).run(position.id, position.mint, now(), price, mcap, position.size_sol, position.token_amount_est, exitReason, json({
+        pnlPercent: finalPnlPercent,
+        pnlSol: finalPnlSol,
+        receivedSol: receivedSol ?? null,
+        sell,
+        reconciliation,
+        jupiterPnl,
+        mcapSample,
+      }));
+      await alertFn(alertPayload);
+      return {
+        ...position,
+        status: 'partial_exit',
+        token_amount_raw: String(reconciliation.remainingRaw),
+        asset,
+        mcapSample,
+        price,
+        mcap,
+        highWaterMcap,
+        high_water_mcap: highWaterMcap,
+        high_water_price: highWaterPrice,
+        effective_sl_percent: effectiveSlPercent,
+        breakeven_armed: breakevenArmed ? 1 : 0,
+        breakeven_armed_at_ms: breakevenArmedAtMs,
+        breakeven_lock_percent: breakevenLockPercent,
+        pnlPercent: finalPnlPercent,
+        pnl_percent: finalPnlPercent,
+        pnlSol: finalPnlSol,
+        pnl_sol: finalPnlSol,
+        exitReason: null,
+        exit_reason: exitReason,
+        exit_mcap: mcap,
+        exit_price: price,
+        exit_signature: sell.signature,
+      };
     }
     db.prepare(`
       UPDATE dry_run_positions
@@ -202,18 +379,32 @@ export async function refreshPosition(position, { autoExit = true, jupiterPnl = 
     db.prepare(`
       INSERT INTO dry_run_trades (position_id, mint, side, at_ms, price, mcap, size_sol, token_amount_est, reason, payload_json)
       VALUES (?, ?, 'sell', ?, ?, ?, ?, ?, ?, ?)
-    `).run(position.id, position.mint, now(), price, mcap, position.size_sol, position.token_amount_est, exitReason, json({ pnlPercent: finalPnlPercent, pnlSol: finalPnlSol, receivedSol: receivedSol ?? null, sell }));
+    `).run(position.id, position.mint, now(), price, mcap, position.size_sol, position.token_amount_est, exitReason, json({ pnlPercent: finalPnlPercent, pnlSol: finalPnlSol, receivedSol: receivedSol ?? null, sell, reconciliation, jupiterPnl, mcapSample }));
+    recordHardLossObservation(position, { exitReason, pnlPercent: finalPnlPercent, pnlSol: finalPnlSol, mcapSample });
     closed = true;
   } else if (exitReason && autoExit) {
+    // Dry-run: apply configurable slippage and fee simulation
+    const drySlippagePct = numSetting('dry_run_slippage_pct', 1.0);
+    const dryFeePct = numSetting('dry_run_fee_pct', 0.2);
+    const effectiveExitMcap = Number(mcap) * (1 - drySlippagePct / 100);
+    const effectiveEntryMcap = Number(position.entry_mcap);
+    const simPnlPercent = effectiveEntryMcap > 0
+      ? (effectiveExitMcap / effectiveEntryMcap - 1) * 100
+      : pnlPercent;
+    const feeDeductionSol = Number(position.size_sol) * (dryFeePct / 100);
+    const simPnlSol = Number(position.size_sol) * simPnlPercent / 100 - feeDeductionSol;
+    finalPnlPercent = simPnlPercent;
+    finalPnlSol = simPnlSol;
     db.prepare(`
       UPDATE dry_run_positions
       SET status = 'closed', closed_at_ms = ?, exit_price = ?, exit_mcap = ?, exit_reason = ?, pnl_percent = ?, pnl_sol = ?
       WHERE id = ?
-    `).run(now(), price, mcap, exitReason, pnlPercent, pnlSol, position.id);
+    `).run(now(), price, mcap, exitReason, finalPnlPercent, finalPnlSol, position.id);
     db.prepare(`
       INSERT INTO dry_run_trades (position_id, mint, side, at_ms, price, mcap, size_sol, token_amount_est, reason, payload_json)
       VALUES (?, ?, 'sell', ?, ?, ?, ?, ?, ?, ?)
-    `).run(position.id, position.mint, now(), price, mcap, position.size_sol, position.token_amount_est, exitReason, json({ pnlPercent, pnlSol }));
+    `).run(position.id, position.mint, now(), price, mcap, position.size_sol, position.token_amount_est, exitReason, json({ pnlPercent: finalPnlPercent, pnlSol: finalPnlSol, drySlippagePct, dryFeePct, mcapSample }));
+    recordHardLossObservation(position, { exitReason, pnlPercent: finalPnlPercent, pnlSol: finalPnlSol, mcapSample });
     closed = true;
   }
   return {
@@ -221,11 +412,16 @@ export async function refreshPosition(position, { autoExit = true, jupiterPnl = 
     status: closed ? 'closed' : position.status,
     closed_at_ms: closed ? now() : position.closed_at_ms,
     asset,
+    mcapSample,
     price,
     mcap,
     highWaterMcap,
     high_water_mcap: highWaterMcap,
     high_water_price: highWaterPrice,
+    effective_sl_percent: effectiveSlPercent,
+    breakeven_armed: breakevenArmed ? 1 : 0,
+    breakeven_armed_at_ms: breakevenArmedAtMs,
+    breakeven_lock_percent: breakevenLockPercent,
     pnlPercent: finalPnlPercent,
     pnl_percent: finalPnlPercent,
     pnlSol: finalPnlSol,
@@ -252,6 +448,9 @@ export async function monitorPositions() {
       console.log(`[position] ${position.id} ${err.message}`);
       return null;
     });
-    if (result?.exitReason) await sendPositionExit(result);
+    if (result?.exitReason) {
+      const { sendPositionExit } = await import('../telegram/send.js');
+      await sendPositionExit(result);
+    }
   }
 }

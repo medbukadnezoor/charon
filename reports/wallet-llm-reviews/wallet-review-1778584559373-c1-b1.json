@@ -1,0 +1,28 @@
+{
+  "generated_at": "2026-05-12T11:16:18.111Z",
+  "model": "mimo-v2.5-pro",
+  "base_url": "https://api.xiaomimimo.com/v1",
+  "batch_id": "wallet-review-1778584559373-c1-b1",
+  "batch_ids": [
+    "wallet-review-1778584559373-c1-b1"
+  ],
+  "wallet_count": 1,
+  "verdict_counts": {
+    "insufficient_data": 1
+  },
+  "action_counts": {
+    "remove": 1
+  },
+  "rows": [
+    {
+      "wallet_address": "1TXsKzewQzFb8MYidNCmvmPWTma1DWyC6fpvd5gQa7W",
+      "llm_verdict": "insufficient_data",
+      "llm_confidence": 20,
+      "llm_reasoning": "Only two sparse holder sightings with unavailable USD amounts, no trade history, and minimal activity make genuine classification impossible.",
+      "recommended_action": "remove",
+      "batch_id": "wallet-review-1778584559373-c1-b1",
+      "reviewed_at_ms": 1778584578108,
+      "reviewed_at_iso": "2026-05-12T11:16:18.108Z"
+    }
+  ]
+}

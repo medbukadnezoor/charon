@@ -1,0 +1,374 @@
+{
+  "created_at": "2026-05-13T01:08:58.377Z",
+  "db_path": "./charon.sqlite",
+  "harvester_db_path": "../moonbags/tools/wallet-harvester/data/harvester.db",
+  "saved_wallet_count": 58,
+  "kol_like_saved_wallet_count": 6,
+  "selected_holder_count": 8,
+  "matched_wallet_count": 8,
+  "kol_holder_count": 6,
+  "matched_wallet_labels": [
+    "1aC2FgH1",
+    "2HpEemeT",
+    "Cupsey_2",
+    "Hesi",
+    "Putrick",
+    "RC",
+    "Yenni",
+    "p"
+  ],
+  "kol_holder_labels": [
+    "Cupsey_2",
+    "Hesi",
+    "Putrick",
+    "RC",
+    "Yenni",
+    "p"
+  ],
+  "compact": {
+    "candidate_id": 0,
+    "mint": "SHADOW_MINT_FOR_CANDIDATE_PAYLOAD_CHECK",
+    "route": "shadow_candidate_payload_check",
+    "signals": {
+      "route": "shadow_candidate_payload_check",
+      "label": "shadow",
+      "hasFeeClaim": false,
+      "hasGraduated": false,
+      "hasTrending": false,
+      "triggerSignature": null,
+      "strategy": "shadow"
+    },
+    "token": {
+      "mint": "SHADOW_MINT_FOR_CANDIDATE_PAYLOAD_CHECK",
+      "name": "Shadow Candidate",
+      "symbol": "SHADOW",
+      "gmgnUrl": "",
+      "twitter": "",
+      "website": "",
+      "telegram": ""
+    },
+    "metrics": {
+      "priceUsd": null,
+      "marketCapUsd": null,
+      "liquidityUsd": 0,
+      "holderCount": 8
+    },
+    "holders": {
+      "count": 8,
+      "holders": [
+        {
+          "address": "suqh5sHtr8HyJ7q8scBimULPkPpA557prMG47xCHQfK",
+          "rank": 1,
+          "amount": 1,
+          "percent": null,
+          "tags": []
+        },
+        {
+          "address": "FpD6n8gfoZNxyAN6QqNH4TFQdV9vZEgcv5W4H2YL8k4X",
+          "rank": 2,
+          "amount": 1,
+          "percent": null,
+          "tags": []
+        },
+        {
+          "address": "AVjEtg2ECYKXYeqdRQXvaaAZBjfTjYuSMTR4WLhKoeQN",
+          "rank": 3,
+          "amount": 1,
+          "percent": null,
+          "tags": []
+        },
+        {
+          "address": "DxM1hfY8FQ8dNGrucuJzhJcF8KRbjk8WBwrgKvQ9spPv",
+          "rank": 4,
+          "amount": 1,
+          "percent": null,
+          "tags": []
+        },
+        {
+          "address": "5B52w1ZW9tuwUduueP5J7HXz5AcGfruGoX6YoAudvyxG",
+          "rank": 5,
+          "amount": 1,
+          "percent": null,
+          "tags": []
+        },
+        {
+          "address": "73f1cxg7cMM52fdLjKXcadKhi7GWV6MSZkWrdq7w7bNM",
+          "rank": 6,
+          "amount": 1,
+          "percent": null,
+          "tags": []
+        },
+        {
+          "address": "1aC2FgH1tujX87Bv9yMVbda2sPiRDNCsjMJoJjw3n6C",
+          "rank": 7,
+          "amount": 1,
+          "percent": null,
+          "tags": []
+        },
+        {
+          "address": "2HpEemeT7HawRakzj3ckwfPxmgPnji6z7z9yox1sNR8D",
+          "rank": 8,
+          "amount": 1,
+          "percent": null,
+          "tags": []
+        }
+      ],
+      "top20": [
+        {
+          "address": "suqh5sHtr8HyJ7q8scBimULPkPpA557prMG47xCHQfK",
+          "rank": 1,
+          "amount": 1,
+          "percent": null,
+          "tags": []
+        },
+        {
+          "address": "FpD6n8gfoZNxyAN6QqNH4TFQdV9vZEgcv5W4H2YL8k4X",
+          "rank": 2,
+          "amount": 1,
+          "percent": null,
+          "tags": []
+        },
+        {
+          "address": "AVjEtg2ECYKXYeqdRQXvaaAZBjfTjYuSMTR4WLhKoeQN",
+          "rank": 3,
+          "amount": 1,
+          "percent": null,
+          "tags": []
+        },
+        {
+          "address": "DxM1hfY8FQ8dNGrucuJzhJcF8KRbjk8WBwrgKvQ9spPv",
+          "rank": 4,
+          "amount": 1,
+          "percent": null,
+          "tags": []
+        },
+        {
+          "address": "5B52w1ZW9tuwUduueP5J7HXz5AcGfruGoX6YoAudvyxG",
+          "rank": 5,
+          "amount": 1,
+          "percent": null,
+          "tags": []
+        },
+        {
+          "address": "73f1cxg7cMM52fdLjKXcadKhi7GWV6MSZkWrdq7w7bNM",
+          "rank": 6,
+          "amount": 1,
+          "percent": null,
+          "tags": []
+        },
+        {
+          "address": "1aC2FgH1tujX87Bv9yMVbda2sPiRDNCsjMJoJjw3n6C",
+          "rank": 7,
+          "amount": 1,
+          "percent": null,
+          "tags": []
+        },
+        {
+          "address": "2HpEemeT7HawRakzj3ckwfPxmgPnji6z7z9yox1sNR8D",
+          "rank": 8,
+          "amount": 1,
+          "percent": null,
+          "tags": []
+        }
+      ],
+      "top20Percent": null,
+      "maxHolderPercent": null
+    },
+    "chart": {
+      "purpose": "ATH/range context only. Do not treat large 24h change as bullish/bearish momentum by itself.",
+      "currentNative": null,
+      "rangeHighNative": null,
+      "topBlastRisk": null,
+      "athContext24h": null,
+      "windows": []
+    },
+    "savedWalletExposure": {
+      "holderCount": 8,
+      "checked": 58,
+      "wallets": [
+        "1aC2FgH1",
+        "2HpEemeT",
+        "Cupsey_2",
+        "Hesi",
+        "Putrick",
+        "RC",
+        "Yenni",
+        "p"
+      ],
+      "matchedWallets": [
+        {
+          "address": "1aC2FgH1tujX87Bv9yMVbda2sPiRDNCsjMJoJjw3n6C",
+          "label": "1aC2FgH1",
+          "tags": [
+            "smart_degen",
+            "axiom"
+          ],
+          "ownerManualLabel": null,
+          "ownerManualNotes": null,
+          "gmgnTwitterUsername": null,
+          "gmgnTwitterName": null
+        },
+        {
+          "address": "2HpEemeT7HawRakzj3ckwfPxmgPnji6z7z9yox1sNR8D",
+          "label": "2HpEemeT",
+          "tags": [],
+          "ownerManualLabel": null,
+          "ownerManualNotes": null,
+          "gmgnTwitterUsername": null,
+          "gmgnTwitterName": null
+        },
+        {
+          "address": "suqh5sHtr8HyJ7q8scBimULPkPpA557prMG47xCHQfK",
+          "label": "Cupsey_2",
+          "tags": [
+            "kol",
+            "photon",
+            "axiom",
+            "kol_profitable_watch"
+          ],
+          "ownerManualLabel": "kol_profitable_watch",
+          "ownerManualNotes": "Owner insight: KOL profitable; Owner decision: watch; Owner notes: Do not enter when already in profit",
+          "gmgnTwitterUsername": "Cupseyy",
+          "gmgnTwitterName": "Cupsey"
+        },
+        {
+          "address": "FpD6n8gfoZNxyAN6QqNH4TFQdV9vZEgcv5W4H2YL8k4X",
+          "label": "Hesi",
+          "tags": [
+            "gmgn",
+            "kol",
+            "top_renamed",
+            "wash_trader",
+            "padre",
+            "axiom",
+            "kol_profitable_watch"
+          ],
+          "ownerManualLabel": "kol_profitable_watch",
+          "ownerManualNotes": "Owner insight: KOL profitable; Owner decision: watch; Owner notes: Do not enter when already in profit",
+          "gmgnTwitterUsername": "hesiitations",
+          "gmgnTwitterName": "Hesi"
+        },
+        {
+          "address": "AVjEtg2ECYKXYeqdRQXvaaAZBjfTjYuSMTR4WLhKoeQN",
+          "label": "Putrick",
+          "tags": [
+            "kol",
+            "axiom",
+            "kol_profitable_watch"
+          ],
+          "ownerManualLabel": "kol_profitable_watch",
+          "ownerManualNotes": "Owner insight: KOL profitable; Owner decision: watch; Owner notes: Do not enter when already in profit",
+          "gmgnTwitterUsername": "Putrickk",
+          "gmgnTwitterName": "Putrick"
+        },
+        {
+          "address": "DxM1hfY8FQ8dNGrucuJzhJcF8KRbjk8WBwrgKvQ9spPv",
+          "label": "RC",
+          "tags": [
+            "kol",
+            "fomo",
+            "kol_profitable_watch"
+          ],
+          "ownerManualLabel": "kol_profitable_watch",
+          "ownerManualNotes": "Owner insight: KOL profitable; Owner decision: watch; Owner notes: Do not enter when already in profit",
+          "gmgnTwitterUsername": "ResellCalendar",
+          "gmgnTwitterName": "RC"
+        },
+        {
+          "address": "5B52w1ZW9tuwUduueP5J7HXz5AcGfruGoX6YoAudvyxG",
+          "label": "Yenni",
+          "tags": [
+            "kol",
+            "app_smart_money",
+            "axiom",
+            "padre",
+            "kol_profitable_watch"
+          ],
+          "ownerManualLabel": "kol_profitable_watch",
+          "ownerManualNotes": "Owner insight: KOL profitable; Owner decision: watch; Owner notes: Do not enter when already in profit",
+          "gmgnTwitterUsername": "Yennii56",
+          "gmgnTwitterName": "Yenni"
+        },
+        {
+          "address": "73f1cxg7cMM52fdLjKXcadKhi7GWV6MSZkWrdq7w7bNM",
+          "label": "p",
+          "tags": [
+            "top_renamed",
+            "photon",
+            "app_smart_money",
+            "trojan",
+            "axiom",
+            "gmgn",
+            "kol_profitable_watch"
+          ],
+          "ownerManualLabel": "kol_profitable_watch",
+          "ownerManualNotes": "Owner insight: KOL profitable; Owner decision: watch; Owner notes: Do not enter when already in profit",
+          "gmgnTwitterUsername": "rob02643673_rob",
+          "gmgnTwitterName": "枯坐p小将"
+        }
+      ]
+    },
+    "kolDumpRisk": {
+      "kolHolders": [
+        {
+          "address": "suqh5sHtr8HyJ7q8scBimULPkPpA557prMG47xCHQfK",
+          "label": "Cupsey_2",
+          "tag": "kol",
+          "pnlOnToken": null,
+          "pnlPercent": null,
+          "profitable": false
+        },
+        {
+          "address": "FpD6n8gfoZNxyAN6QqNH4TFQdV9vZEgcv5W4H2YL8k4X",
+          "label": "Hesi",
+          "tag": "kol",
+          "pnlOnToken": null,
+          "pnlPercent": null,
+          "profitable": false
+        },
+        {
+          "address": "AVjEtg2ECYKXYeqdRQXvaaAZBjfTjYuSMTR4WLhKoeQN",
+          "label": "Putrick",
+          "tag": "kol",
+          "pnlOnToken": null,
+          "pnlPercent": null,
+          "profitable": false
+        },
+        {
+          "address": "DxM1hfY8FQ8dNGrucuJzhJcF8KRbjk8WBwrgKvQ9spPv",
+          "label": "RC",
+          "tag": "kol",
+          "pnlOnToken": null,
+          "pnlPercent": null,
+          "profitable": false
+        },
+        {
+          "address": "5B52w1ZW9tuwUduueP5J7HXz5AcGfruGoX6YoAudvyxG",
+          "label": "Yenni",
+          "tag": "kol",
+          "pnlOnToken": null,
+          "pnlPercent": null,
+          "profitable": false
+        },
+        {
+          "address": "73f1cxg7cMM52fdLjKXcadKhi7GWV6MSZkWrdq7w7bNM",
+          "label": "p",
+          "tag": "kol_profitable_watch",
+          "pnlOnToken": null,
+          "pnlPercent": null,
+          "profitable": false
+        }
+      ],
+      "anyProfitable": false,
+      "maxPnlPercent": null,
+      "source": "shadow_no_provider_call"
+    },
+    "filters": {
+      "passed": false,
+      "failures": [
+        "shadow payload only"
+      ],
+      "strategy": "shadow"
+    }
+  }
+}

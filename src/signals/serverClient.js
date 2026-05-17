@@ -2,8 +2,10 @@ import axios from 'axios';
 import { SIGNAL_SERVER_URL, SIGNAL_SERVER_KEY, SIGNAL_POLL_MS } from '../config.js';
 import { now } from '../utils.js';
 import { activeStrategy } from '../db/settings.js';
+import { logScreeningEvent } from '../db/screeningEvents.js';
 import { storeSignalEvent, trendingSignalPass, trending } from './trending.js';
 import { graduated } from './graduated.js';
+import { normalizeTrendingRiskFields } from '../enrichment/trendingRisk.js';
 
 let candidateHandler = null;
 let degenHandler = null;
@@ -25,9 +27,62 @@ function signalKey(signal) {
   return `${signal.mint}:${sources}`;
 }
 
-async function triggerCandidate({ mint, fee, signature, graduatedCoin, trendingToken, route }) {
+async function triggerCandidate({ mint, fee, signature, graduatedCoin, trendingToken, route, signalMeta }) {
   if (!candidateHandler) return;
-  await candidateHandler({ mint, fee, signature, graduatedCoin, trendingToken, route });
+  await candidateHandler({ mint, fee, signature, graduatedCoin, trendingToken, route, signalMeta });
+}
+
+function sourceLabels(signal) {
+  return Array.isArray(signal?.sources) ? signal.sources.map(source => String(source)) : [];
+}
+
+function routeForSignal({ hasFee, graduatedCoin, trendingToken, sourceCount }) {
+  if (hasFee && graduatedCoin && trendingToken) return 'fee_graduated_trending';
+  if (hasFee && graduatedCoin) return 'fee_graduated';
+  if (hasFee && trendingToken) return 'fee_trending';
+  if (graduatedCoin && trendingToken) return 'graduated_trending';
+  if (sourceCount >= 3) return 'multi_source';
+  if (sourceCount >= 2) return 'dual_source';
+  return 'single_source';
+}
+
+export function buildSignalMeta({ signal, sourceCount, sources, hasFeeClaim, route, seenAtMs }) {
+  return {
+    ageMs: signal?.ageMs ?? null,
+    sourceCount,
+    sources,
+    hasFeeClaim,
+    seenAtMs,
+    route,
+  };
+}
+
+function logEarlySignalSkip({ signal, strat, signalMeta, reasonCode, reasonText }) {
+  try {
+    logScreeningEvent({
+      stage: 'early_signal_gate',
+      action: 'skipped',
+      reasonCode,
+      reasonText,
+      mint: signal.mint,
+      strategy: strat,
+      signalKey: signalKey(signal),
+      sourceCount: signalMeta.sourceCount,
+      sources: signalMeta.sources,
+      route: signalMeta.route,
+      ageMs: signalMeta.ageMs,
+      ageThresholdMs: strat.token_age_max_ms,
+      hasFeeClaim: signalMeta.hasFeeClaim,
+      configSnapshot: strat,
+      providerFields: {
+        seenAtMs: signalMeta.seenAtMs,
+        trendingSource: signal.trending?.source,
+        signalSources: signalMeta.sources,
+      },
+    });
+  } catch (err) {
+    console.log(`[server] screening event log failed for ${reasonCode}: ${err.message}`);
+  }
 }
 
 export async function fetchServerSignals() {
@@ -69,6 +124,9 @@ export async function fetchServerSignals() {
 
       // Update trending map
       if (signal.trending) {
+        const risk = normalizeTrendingRiskFields(signal.trending, {
+          source: signal.sources?.find(s => s.includes('trending')) || 'signal_server',
+        });
         const trendingToken = {
           address: mint,
           name: signal.name,
@@ -83,6 +141,10 @@ export async function fetchServerSignals() {
           source: signal.sources?.find(s => s.includes('trending')) || 'server',
           seenAt: now(),
           ...signal.trending,
+          rug_ratio: risk.rug_ratio,
+          bundler_rate: risk.bundler_rate,
+          is_wash_trading: risk.is_wash_trading,
+          risk_field_availability: risk.risk_field_availability,
         };
         trending.set(mint, trendingToken);
       }
@@ -101,28 +163,58 @@ export async function fetchServerSignals() {
       const trendingToken = trending.get(mint) || null;
       const hasFee = Boolean(signal.feeClaim);
       const sourceCount = signal.sourceCount || 1;
+      const sources = sourceLabels(signal);
+      const route = routeForSignal({ hasFee, graduatedCoin, trendingToken, sourceCount });
+      const signalMeta = buildSignalMeta({
+        signal,
+        sourceCount,
+        sources,
+        hasFeeClaim: hasFee,
+        route,
+        seenAtMs: now(),
+      });
 
       // Strategy gate: check source count
-      if (sourceCount < strat.min_source_count) { processed++; continue; }
+      if (sourceCount < strat.min_source_count) {
+        logEarlySignalSkip({
+          signal,
+          strat,
+          signalMeta,
+          reasonCode: 'source_count_below_min',
+          reasonText: `source count ${sourceCount} below min ${strat.min_source_count}`,
+        });
+        processed++;
+        continue;
+      }
 
       // Strategy gate: fee claim requirement
-      if (strat.require_fee_claim && !hasFee) { processed++; continue; }
+      if (strat.require_fee_claim && !hasFee) {
+        logEarlySignalSkip({
+          signal,
+          strat,
+          signalMeta,
+          reasonCode: 'fee_claim_missing_required',
+          reasonText: 'fee claim missing but required by strategy',
+        });
+        processed++;
+        continue;
+      }
 
       // Strategy gate: token age
       if (strat.token_age_max_ms > 0) {
         const tokenAge = signal.ageMs || 0;
-        if (tokenAge > strat.token_age_max_ms) { processed++; continue; }
+        if (tokenAge > strat.token_age_max_ms) {
+          logEarlySignalSkip({
+            signal,
+            strat,
+            signalMeta,
+            reasonCode: 'token_age_above_max',
+            reasonText: `token age ${tokenAge}ms above max ${strat.token_age_max_ms}ms`,
+          });
+          processed++;
+          continue;
+        }
       }
-
-      // Determine route
-      let route = null;
-      if (hasFee && graduatedCoin && trendingToken) route = 'fee_graduated_trending';
-      else if (hasFee && graduatedCoin) route = 'fee_graduated';
-      else if (hasFee && trendingToken) route = 'fee_trending';
-      else if (graduatedCoin && trendingToken) route = 'graduated_trending';
-      else if (sourceCount >= 3) route = 'multi_source';
-      else if (sourceCount >= 2) route = 'dual_source';
-      else route = 'single_source';
 
       // Build fee object if present
       let fee = null;
@@ -145,7 +237,7 @@ export async function fetchServerSignals() {
         const athDist = signal.graduated?.distanceFromAthPercent;
         if (athDist != null && athDist <= strat.max_ath_distance_pct) {
           // Already at dip target, trigger immediately
-          await triggerCandidate({ mint, fee, signature, graduatedCoin, trendingToken, route });
+          await triggerCandidate({ mint, fee, signature, graduatedCoin, trendingToken, route, signalMeta });
           triggered++;
         } else {
           // Store price alert for later
@@ -164,7 +256,7 @@ export async function fetchServerSignals() {
         }
       } else {
         // Immediate entry mode (sniper, smart_money, degen)
-        await triggerCandidate({ mint, fee, signature, graduatedCoin, trendingToken, route });
+        await triggerCandidate({ mint, fee, signature, graduatedCoin, trendingToken, route, signalMeta });
         triggered++;
       }
 

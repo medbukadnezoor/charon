@@ -1,0 +1,28 @@
+{
+  "generated_at": "2026-05-13T06:46:25.015Z",
+  "model": "mimo-v2.5-pro",
+  "base_url": "https://token-plan-sgp.xiaomimimo.com/v1",
+  "batch_id": "wallet-review-1778654780503-c1-b1",
+  "batch_ids": [
+    "wallet-review-1778654780503-c1-b1"
+  ],
+  "wallet_count": 1,
+  "verdict_counts": {
+    "copy_trader": 1
+  },
+  "action_counts": {
+    "watch": 1
+  },
+  "rows": [
+    {
+      "wallet_address": "73f1cxg7cMM52fdLjKXcadKhi7GWV6MSZkWrdq7w7bNM",
+      "llm_verdict": "copy_trader",
+      "llm_confidence": 75,
+      "llm_reasoning": "KOL-like wallet with moderate win rate and activity, but recent sightings show only holds, indicating copy-trading or following rather than independent high-conviction trading.",
+      "recommended_action": "watch",
+      "batch_id": "wallet-review-1778654780503-c1-b1",
+      "reviewed_at_ms": 1778654785013,
+      "reviewed_at_iso": "2026-05-13T06:46:25.013Z"
+    }
+  ]
+}

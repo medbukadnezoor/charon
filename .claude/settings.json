@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(../charon-intelligence/AGENTS.md)",
+      "Read(../charon-intelligence/CLAUDE.md)",
+      "Read(../charon-intelligence/GEMINI.md)",
+      "Read(../charon-intelligence/README.md)",
+      "Read(../charon-intelligence/.ai/specs/**)",
+      "Read(../charon-intelligence/.claude/commands/**)",
+      "Read(../charon-intelligence/data/knowledge/seed/**)",
+      "Read(../charon-intelligence/data/change_log/**)",
+      "Read(../charon-intelligence/reports/**)",
+      "Read(../charon-intelligence/scripts/**)",
+      "Bash(cd \"../charon-intelligence\" && python3 scripts/*.py*)",
+      "Bash(cd \"../charon-intelligence\" && python3 -m py_compile*)",
+      "Bash(cd \"../charon-intelligence\" && bash scripts/sync_vps.sh*)",
+      "Bash(cd \"../charon-intelligence\" && bash scripts/run_full_pipeline.sh*)",
+      "Bash(cd \"../charon-intelligence\" && cat reports/*)",
+      "Bash(cd \"../charon-intelligence\" && cat data/knowledge/seed/*.jsonl)",
+      "Bash(cd \"../charon-intelligence\" && cat data/change_log/changes.jsonl)",
+      "Bash(cd \"../charon-intelligence\" && ls reports/)",
+      "Bash(cd \"../charon-intelligence\" && ls data/knowledge/seed/)",
+      "Bash(cd \"../charon-intelligence\" && find reports -name '*.md' -newer*)",
+      "Bash(cd \"../charon-intelligence\" && stat reports/*)",
+      "Bash(cd \"../charon-intelligence\" && git log --oneline*)",
+      "Bash(cd \"../charon-intelligence\" && git status*)",
+      "Bash(cd \"../charon-intelligence\" && git diff*)"
+    ]
+  }
+}

@@ -28,6 +28,10 @@ export function gmgnLink(mint) {
   return `https://gmgn.ai/sol/token/${mint}`;
 }
 
+export function gmgnWalletLink(address) {
+  return `https://gmgn.ai/sol/address/${address}`;
+}
+
 export function txLink(signature) {
   return `https://solscan.io/tx/${signature}`;
 }

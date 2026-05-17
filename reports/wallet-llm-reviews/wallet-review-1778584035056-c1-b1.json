@@ -1,0 +1,51 @@
+{
+  "generated_at": "2026-05-12T11:07:23.292Z",
+  "model": "mimo-v2.5-pro",
+  "base_url": "https://api.xiaomimimo.com/v1",
+  "batch_id": "wallet-review-1778584035056-c1-b1",
+  "batch_ids": [
+    "wallet-review-1778584035056-c1-b1"
+  ],
+  "wallet_count": 3,
+  "verdict_counts": {
+    "insufficient_data": 1,
+    "genuine_smart_trader": 1,
+    "bot_or_sniper": 1
+  },
+  "action_counts": {
+    "demote": 1,
+    "keep": 2
+  },
+  "rows": [
+    {
+      "wallet_address": "1TXsKzewQzFb8MYidNCmvmPWTma1DWyC6fpvd5gQa7W",
+      "llm_verdict": "insufficient_data",
+      "llm_confidence": 25,
+      "llm_reasoning": "Only two sightings with zero trade amounts and no clear profit/loss signal, making it impossible to assess genuine trading activity.",
+      "recommended_action": "demote",
+      "batch_id": "wallet-review-1778584035056-c1-b1",
+      "reviewed_at_ms": 1778584043289,
+      "reviewed_at_iso": "2026-05-12T11:07:23.289Z"
+    },
+    {
+      "wallet_address": "1aC2FgH1tujX87Bv9yMVbda2sPiRDNCsjMJoJjw3n6C",
+      "llm_verdict": "genuine_smart_trader",
+      "llm_confidence": 70,
+      "llm_reasoning": "Multiple sightings across various low-cap tokens with a mix of hold and sell actions and some realized profit, consistent with early micro-cap trading.",
+      "recommended_action": "keep",
+      "batch_id": "wallet-review-1778584035056-c1-b1",
+      "reviewed_at_ms": 1778584043289,
+      "reviewed_at_iso": "2026-05-12T11:07:23.289Z"
+    },
+    {
+      "wallet_address": "2HpEemeT7HawRakzj3ckwfPxmgPnji6z7z9yox1sNR8D",
+      "llm_verdict": "bot_or_sniper",
+      "llm_confidence": 60,
+      "llm_reasoning": "High number of sightings in a short timeframe with large unrealized holdings and bundler tags suggest automated or rapid-fire trading behavior.",
+      "recommended_action": "keep",
+      "batch_id": "wallet-review-1778584035056-c1-b1",
+      "reviewed_at_ms": 1778584043289,
+      "reviewed_at_iso": "2026-05-12T11:07:23.289Z"
+    }
+  ]
+}

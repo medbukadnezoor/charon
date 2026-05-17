@@ -5,8 +5,9 @@ import { db } from '../db/connection.js';
 import { escapeHtml, fmtPct, fmtSol, fmtUsd, short, gmgnLink } from '../format.js';
 import { numSetting } from '../db/settings.js';
 import { candidateSummary, compactCandidateLine, batchRevealSummary, formatPosition } from './format.js';
-import { candidateButtons, batchRevealButtons, positionButtons, intentButtons } from './menus.js';
+import { candidateButtons, batchRevealButtons, positionButtons, intentButtons, navKeyboard } from './menus.js';
 import { batchById } from '../db/decisions.js';
+import { fetchWalletPnl } from '../enrichment/wallets.js';
 
 export async function sendTelegram(text, extra = {}) {
   return bot.sendMessage(TELEGRAM_CHAT_ID, text, {
@@ -77,6 +78,28 @@ export async function sendPositionExit(position) {
   await sendTelegram(`🏁 <b>${label}: ${escapeHtml(position.exitReason)}</b>\n\n${formatPosition({ ...position, status: 'closed' })}`);
 }
 
+export async function sendLiveSellReconciliationAlert({
+  position,
+  expectedSellAmount,
+  remainingBalance,
+  signature,
+  reason,
+  balanceCheckFailed = false,
+}) {
+  const state = balanceCheckFailed ? 'balance check failed' : 'residual balance detected';
+  await sendTelegram([
+    '⚠️ <b>Live sell reconciliation warning</b>',
+    '',
+    `State: <b>${escapeHtml(state)}</b>`,
+    `Position: <b>#${escapeHtml(position?.id)}</b> ${escapeHtml(position?.symbol || '')}`,
+    `Mint: <code>${escapeHtml(position?.mint || '')}</code>`,
+    `Exit reason: <b>${escapeHtml(reason || position?.exit_reason || 'unknown')}</b>`,
+    `Expected sell raw: <code>${escapeHtml(expectedSellAmount ?? '')}</code>`,
+    `Remaining raw: <code>${escapeHtml(remainingBalance ?? 'unknown')}</code>`,
+    signature ? `Signature: <code>${escapeHtml(signature)}</code>` : null,
+  ].filter(Boolean).join('\n'));
+}
+
 export async function sendTradeIntent(intentId, candidate, decision) {
   await sendTelegram([
     '🧾 <b>Trade intent awaiting confirmation</b>',
@@ -86,4 +109,63 @@ export async function sendTradeIntent(intentId, candidate, decision) {
     `Size: <b>${fmtSol(numSetting('dry_run_buy_sol', 0.1))} SOL</b>`,
     'Execution: confirmation required before signing.',
   ].join('\n'), intentButtons(intentId));
+}
+
+function savedWalletsLocal() {
+  return db.prepare('SELECT * FROM saved_wallets ORDER BY label').all();
+}
+
+export async function sendPnl(chatId, query = null) {
+  const wallets = savedWalletsLocal();
+  if (!wallets.length) {
+    const text = '📊 <b>PnL</b>\n\nNo saved wallets. Use /walletadd &lt;label&gt; &lt;address&gt;.';
+    if (query) {
+      const { editMenuMessage } = await import('./callbacks.js');
+      return editMenuMessage(query, text, navKeyboard());
+    }
+    return bot.sendMessage(chatId, text, { parse_mode: 'HTML' });
+  }
+  const chunks = [];
+  for (const wallet of wallets) {
+    const pnl = await fetchWalletPnl(wallet.address).catch(() => null);
+    if (!pnl) {
+      chunks.push(`• <b>${escapeHtml(wallet.label)}</b>: no data`);
+      continue;
+    }
+    chunks.push([
+      `• <b>${escapeHtml(wallet.label)}</b>`,
+      `Win: ${fmtPct(pnl.winRate)} · PnL: ${fmtPct(pnl.totalPnlPercent)}`,
+      `Trades: ${pnl.totalTrades} · Wins: ${pnl.wins}`,
+    ].join('\n'));
+  }
+
+  // Paginate to stay under Telegram's 4096-char hard limit
+  const MAX = 4000;
+  const header = '📊 <b>PnL</b>\n\n';
+  const pages = [];
+  let current = header;
+  for (const chunk of chunks) {
+    const sep = current === header ? '' : '\n\n';
+    if (current.length + sep.length + chunk.length > MAX) {
+      pages.push(current);
+      current = header + chunk;
+    } else {
+      current += sep + chunk;
+    }
+  }
+  if (current.length > header.length) pages.push(current);
+
+  const opts = { parse_mode: 'HTML', disable_web_page_preview: true };
+  if (query) {
+    const { editMenuMessage } = await import('./callbacks.js');
+    await editMenuMessage(query, pages[0], pages.length === 1 ? navKeyboard() : opts);
+    for (let i = 1; i < pages.length; i++) {
+      const extra = i === pages.length - 1 ? { ...opts, ...navKeyboard() } : opts;
+      await bot.sendMessage(chatId, pages[i], extra);
+    }
+    return;
+  }
+  for (const page of pages) {
+    await bot.sendMessage(chatId, page, opts);
+  }
 }

@@ -21,6 +21,10 @@ export function candidateSummary(candidate, decision = null) {
   const chartWindow = candidate.chart?.windows?.find(row => row.label === 'ath_context_24h_5m' && row.available)
     || candidate.chart?.windows?.find(row => row.label === 'recent_24h_5m' && row.available);
   const route = candidate.signals?.label || signalLabel(candidate.signals);
+  const kolRisk = candidate.kolDumpRisk;
+  const kolRiskLine = kolRisk?.kolHolders?.length
+    ? `KOL risk: ${kolRisk.kolHolders.filter(holder => holder.profitable).length}/${kolRisk.kolHolders.length} profitable${kolRisk.maxPnlPercent != null ? ` · max ${fmtPct(kolRisk.maxPnlPercent)}` : ''}`
+    : null;
   const lines = [
     `🛶 <b>Charon Candidate</b>`,
     '',
@@ -40,6 +44,7 @@ export function candidateSummary(candidate, decision = null) {
       `Max holder: ${fmtPct(candidate.holders.maxHolderPercent)}`,
       `Saved wallets: ${candidate.savedWalletExposure.holderCount}/${candidate.savedWalletExposure.checked}`,
     ].join(' · '),
+    kolRiskLine,
     candidate.trending ? [
       `Trending: #${candidate.trending.rank || '?'}/${escapeHtml(candidate.trending.interval || '')}`,
       `Vol: ${fmtUsd(candidate.metrics.trendingVolumeUsd)}`,
@@ -146,6 +151,7 @@ export function compactDecisionCandidate(row) {
     },
     chart: c.chart,
     savedWalletExposure: c.savedWalletExposure,
+    kolDumpRisk: c.kolDumpRisk,
     twitterNarrative: c.twitterNarrative,
     filters: c.filters,
     createdAtMs: c.createdAtMs,

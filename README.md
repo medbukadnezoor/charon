@@ -70,12 +70,29 @@ RPC endpoint (required for live execution):
 ```env
 SOLANA_RPC_URL=https://mainnet.helius-rpc.com/?api-key=YOUR_KEY
 SOLANA_WS_URL=wss://mainnet.helius-rpc.com/?api-key=YOUR_KEY
+PUMP_HELIUS_RPC_URL=
+PUMP_HELIUS_WS_URL=
 ```
 
 If `SOLANA_RPC_URL`/`SOLANA_WS_URL` are not set, Charon falls back to Helius mainnet URLs and requires:
 
 ```env
 HELIUS_API_KEY=
+```
+
+Optional Pump-specific fallback endpoints can be set for Pump log / transaction
+lookup contexts only. They are never used for holder-history, wallet-balance, or
+execution RPC contexts:
+
+```env
+PUMP_HELIUS_RPC_URL=
+PUMP_HELIUS_WS_URL=
+```
+
+Check routing behavior without live provider calls:
+
+```bash
+CHARON_SKIP_DOTENV=true node scripts/check_rpc_routing_shadow.js
 ```
 
 ## GMGN Enrichment
@@ -94,7 +111,7 @@ ENABLE_LLM=true
 LLM_BASE_URL=https://api.minimax.io/v1
 LLM_API_KEY=
 LLM_MODEL=MiniMax-M2.7
-LLM_TIMEOUT_MS=60000
+LLM_TIMEOUT_MS=90000
 LLM_CANDIDATE_PICK_COUNT=10
 LLM_CANDIDATE_MAX_AGE_MS=600000
 ```
@@ -202,6 +219,7 @@ SQLite/menu settings are hot-read by the bot. API keys, wallet key, RPC URLs, Ju
 - **GMGN**: Rate-limited. Keep `GMGN_REQUEST_DELAY_MS=2500` or higher. Running many instances or lowering the delay will get your key banned.
 - **Jupiter**: `fetchJupiterAsset` and `fetchJupiterHolders` are called per candidate and per position refresh cycle. At high throughput, you may hit 429s — Charon backs off automatically and retries from cache.
 - **Helius RPC**: Position monitoring polls every `POSITION_CHECK_MS` (default 10s). Use a paid Helius plan for live trading; free tier will throttle under load.
+- **Pump RPC fallback**: `PUMP_HELIUS_RPC_URL` / `PUMP_HELIUS_WS_URL` are optional Pump-only fallback endpoints. They are only eligible for Pump contexts such as fee logs and Pump transaction lookup; holder intelligence, wallet balance checks, and live execution stay on the general RPC route.
 - **LLM**: One API call per batch cycle (up to `LLM_CANDIDATE_PICK_COUNT` candidates per call). MiniMax M2.7 is the most cost-efficient default for this prompt shape.
 
 ## Notes

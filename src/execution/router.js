@@ -1,21 +1,116 @@
 import { now, json } from '../utils.js';
-import { numSetting, boolSetting } from '../db/settings.js';
+import { numSetting } from '../db/settings.js';
 import { db } from '../db/connection.js';
 import { WSOL_MINT, LIVE_MIN_SOL_RESERVE_LAMPORTS } from '../config.js';
 import { escapeHtml, fmtSol } from '../format.js';
 import { executeJupiterSwap, liveWalletBalanceLamports, fetchLiveTokenBalance } from '../liveExecutor.js';
 import { activeStrategy } from '../db/settings.js';
-import { createLivePosition, canOpenMorePositions, openPositionCount } from '../db/positions.js';
+import { createLivePosition, canOpenMorePositions, hasOpenPositionForMint, openPositionCount } from '../db/positions.js';
 import { intentById } from '../db/intents.js';
-import { logDecisionEvent } from '../db/decisions.js';
+import { logDecisionEvent, logSameMintBlocked } from '../db/decisions.js';
 import { refreshCandidateForExecution } from './positions.js';
-import { bot } from '../telegram/bot.js';
 import { candidateSummary } from '../telegram/format.js';
-import { sendPositionOpen, sendTelegram } from '../telegram/send.js';
 import { updateCandidateStatus } from '../db/candidates.js';
 import { createTradeIntent } from '../db/intents.js';
 
+async function sendChatMessage(chatId, text, extra = {}) {
+  const { bot } = await import('../telegram/bot.js');
+  return bot.sendMessage(chatId, text, extra);
+}
+
+async function sendOpenedPosition(positionId) {
+  const { sendPositionOpen } = await import('../telegram/send.js');
+  return sendPositionOpen(positionId);
+}
+
+export async function sameMintExposureGuard(mint, {
+  fetchTokenBalance = fetchLiveTokenBalance,
+  hasOpenPosition = hasOpenPositionForMint,
+  dustThresholdRaw = numSetting('live_sell_dust_threshold_raw', 1000),
+} = {}) {
+  if (hasOpenPosition(mint)) {
+    return {
+      blocked: true,
+      reason: 'open_position',
+      walletBalanceRaw: null,
+      dustThresholdRaw,
+    };
+  }
+  const walletBalanceRaw = await fetchTokenBalance(mint);
+  if (walletBalanceRaw == null) {
+    return {
+      blocked: false,
+      reason: 'balance_check_failed',
+      walletBalanceRaw: null,
+      dustThresholdRaw,
+    };
+  }
+  const balance = Number(walletBalanceRaw);
+  if (Number.isFinite(balance) && balance > Number(dustThresholdRaw)) {
+    return {
+      blocked: true,
+      reason: 'wallet_balance',
+      walletBalanceRaw: balance,
+      dustThresholdRaw,
+    };
+  }
+  return {
+    blocked: false,
+    reason: 'clear',
+    walletBalanceRaw: Number.isFinite(balance) ? balance : walletBalanceRaw,
+    dustThresholdRaw,
+  };
+}
+
+function logBlockedEntry({ batchId, triggerCandidateId, selectedRow, rows, decision, guard }) {
+  logSameMintBlocked({
+    batchId,
+    triggerCandidateId,
+    selectedRow,
+    rows,
+    decision,
+    mode: 'live',
+    reason: guard.reason,
+    guardrails: {
+      mint: selectedRow?.candidate?.token?.mint,
+      sameMintGuard: guard,
+    },
+  });
+}
+
+export function logAllowedSameMintGuardWarning({ batchId, triggerCandidateId, selectedRow, rows = [], decision = {}, guard }) {
+  if (guard?.reason !== 'balance_check_failed') return;
+  logDecisionEvent({
+    batchId,
+    triggerCandidateId,
+    selectedRow,
+    rows,
+    decision: {
+      ...decision,
+      reason: 'balance_check_failed',
+    },
+    mode: 'live',
+    action: 'same_mint_balance_check_failed',
+    guardrails: {
+      mint: selectedRow?.candidate?.token?.mint,
+      sameMintGuard: guard,
+    },
+    execution: {
+      blocked: false,
+      reason: guard.reason,
+    },
+  });
+}
+
 export async function executeLiveBuy(selectedRow, decision, batchId, rows = [], triggerCandidateId = null) {
+  const mint = selectedRow.candidate.token.mint;
+  const guard = await sameMintExposureGuard(mint);
+  if (guard.blocked) {
+    logBlockedEntry({ batchId, triggerCandidateId, selectedRow, rows, decision, guard });
+    console.log(`[live] same mint blocked ${mint}: ${guard.reason}`);
+    return null;
+  }
+  logAllowedSameMintGuardWarning({ batchId, triggerCandidateId, selectedRow, rows, decision, guard });
   const strat = activeStrategy();
   const amountLamports = Math.floor((strat.position_size_sol ?? numSetting('dry_run_buy_sol', 0.1)) * 1_000_000_000);
   const balance = await liveWalletBalanceLamports();
@@ -42,7 +137,7 @@ export async function executeLiveBuy(selectedRow, decision, batchId, rows = [], 
     guardrails: { balanceLamports: balance, amountLamports, minReserveLamports: LIVE_MIN_SOL_RESERVE_LAMPORTS },
     execution: { positionId, swap },
   });
-  await sendPositionOpen(positionId);
+  await sendOpenedPosition(positionId);
 }
 
 export async function executeLiveSell(position, reason) {
@@ -57,9 +152,9 @@ export async function executeLiveSell(position, reason) {
 
 export async function executeConfirmedIntent(chatId, intentId) {
   const intent = intentById(intentId);
-  if (!intent || intent.status !== 'pending_confirmation') return bot.sendMessage(chatId, 'Pending intent not found.');
+  if (!intent || intent.status !== 'pending_confirmation') return sendChatMessage(chatId, 'Pending intent not found.');
   if (!canOpenMorePositions()) {
-    return bot.sendMessage(chatId, `Max open positions reached (${openPositionCount()}/${numSetting('max_open_positions', 3)}).`);
+    return sendChatMessage(chatId, `Max open positions reached (${openPositionCount()}/${numSetting('max_open_positions', 3)}).`);
   }
   const { decision } = intent.payload;
   try {
@@ -69,7 +164,7 @@ export async function executeConfirmedIntent(chatId, intentId) {
     });
     if (!freshRow.candidate.filters?.passed) {
       db.prepare('UPDATE trade_intents SET status = ?, updated_at_ms = ? WHERE id = ?').run('rejected_stale', now(), intentId);
-      return bot.sendMessage(chatId, [
+      return sendChatMessage(chatId, [
         '🛑 <b>Trade intent rejected on fresh check</b>',
         '',
         candidateSummary(freshRow.candidate, decision),
@@ -77,12 +172,34 @@ export async function executeConfirmedIntent(chatId, intentId) {
         `Failures: ${escapeHtml((freshRow.candidate.filters?.failures || []).join('; ') || 'fresh execution guard failed')}`,
       ].join('\n'), { parse_mode: 'HTML', disable_web_page_preview: true });
     }
+    const mint = freshRow.candidate.token.mint;
+    const guard = await sameMintExposureGuard(mint);
+    if (guard.blocked) {
+      db.prepare('UPDATE trade_intents SET status = ?, updated_at_ms = ? WHERE id = ?').run('rejected_same_mint', now(), intentId);
+      logBlockedEntry({
+        batchId: null,
+        triggerCandidateId: intent.candidate_id,
+        selectedRow: freshRow,
+        rows: [],
+        decision,
+        guard,
+      });
+      return sendChatMessage(chatId, `Same mint exposure blocked: ${escapeHtml(guard.reason)}.`, { parse_mode: 'HTML' });
+    }
+    logAllowedSameMintGuardWarning({
+      batchId: null,
+      triggerCandidateId: intent.candidate_id,
+      selectedRow: freshRow,
+      rows: [],
+      decision,
+      guard,
+    });
     const strat = activeStrategy();
     const amountLamports = Math.floor((strat.position_size_sol ?? numSetting('dry_run_buy_sol', 0.1)) * 1_000_000_000);
     const balance = await liveWalletBalanceLamports();
     if (balance < amountLamports + LIVE_MIN_SOL_RESERVE_LAMPORTS) {
       db.prepare('UPDATE trade_intents SET status = ?, updated_at_ms = ? WHERE id = ?').run('rejected_insufficient_balance', now(), intentId);
-      return bot.sendMessage(chatId, `Insufficient SOL balance. Need ${fmtSol((amountLamports + LIVE_MIN_SOL_RESERVE_LAMPORTS) / 1_000_000_000)} SOL.`, { parse_mode: 'HTML' });
+      return sendChatMessage(chatId, `Insufficient SOL balance. Need ${fmtSol((amountLamports + LIVE_MIN_SOL_RESERVE_LAMPORTS) / 1_000_000_000)} SOL.`, { parse_mode: 'HTML' });
     }
     const swap = await executeJupiterSwap({
       inputMint: WSOL_MINT,
@@ -105,16 +222,16 @@ export async function executeConfirmedIntent(chatId, intentId) {
       guardrails: { balanceLamports: balance, amountLamports, intentId },
       execution: { positionId, swap },
     });
-    return sendPositionOpen(positionId);
+    return sendOpenedPosition(positionId);
   } catch (err) {
     db.prepare('UPDATE trade_intents SET status = ?, updated_at_ms = ? WHERE id = ?').run('execution_failed', now(), intentId);
-    return bot.sendMessage(chatId, `Live execution failed: ${escapeHtml(err.message)}`, { parse_mode: 'HTML' });
+    return sendChatMessage(chatId, `Live execution failed: ${escapeHtml(err.message)}`, { parse_mode: 'HTML' });
   }
 }
 
 export async function rejectIntent(chatId, intentId) {
   const intent = intentById(intentId);
-  if (!intent) return bot.sendMessage(chatId, 'Intent not found.');
+  if (!intent) return sendChatMessage(chatId, 'Intent not found.');
   db.prepare('UPDATE trade_intents SET status = ?, updated_at_ms = ? WHERE id = ?').run('rejected', now(), intentId);
-  return bot.sendMessage(chatId, `Rejected trade intent #${intentId}.`);
+  return sendChatMessage(chatId, `Rejected trade intent #${intentId}.`);
 }

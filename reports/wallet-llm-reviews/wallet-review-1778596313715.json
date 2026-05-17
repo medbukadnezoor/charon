@@ -1,0 +1,125 @@
+{
+  "generated_at": "2026-05-12T14:31:53.715Z",
+  "model": "mimo-v2.5-pro",
+  "base_url": "https://api.xiaomimimo.com/v1",
+  "batch_id": "wallet-review-1778596313715",
+  "batch_ids": [
+    "wallet-review-1778596292693-c1-b1",
+    "wallet-review-1778596292693-c1-b2"
+  ],
+  "wallet_count": 10,
+  "verdict_counts": {
+    "genuine_smart_trader": 6,
+    "inflated_or_wash": 3,
+    "copy_trader": 1
+  },
+  "action_counts": {
+    "keep": 4,
+    "watch": 2,
+    "demote": 1,
+    "promote": 1,
+    "remove": 2
+  },
+  "rows": [
+    {
+      "wallet_address": "2NuAgVk3hcb7s4YvP4GjV5fD8eDvZQv5wuN6ZC8igRfV",
+      "llm_verdict": "genuine_smart_trader",
+      "llm_confidence": 75,
+      "llm_reasoning": "High buy volume concentrated in <100K mcap tokens with positive realized PnL and active trading stats, but local sightings are holder-only making recent activity unclear.",
+      "recommended_action": "keep",
+      "batch_id": "wallet-review-1778596292693-c1-b1",
+      "reviewed_at_ms": 1778596302838,
+      "reviewed_at_iso": "2026-05-12T14:31:42.838Z"
+    },
+    {
+      "wallet_address": "2ji39D4iDuDR1m7rpJcS5ci86PLgBQkWPgwya8YQvY4h",
+      "llm_verdict": "genuine_smart_trader",
+      "llm_confidence": 80,
+      "llm_reasoning": "Strong win rate, positive realized PnL, and preferred mcap <100K with recent sell activity, but local sightings are sparse and mostly holder signals.",
+      "recommended_action": "keep",
+      "batch_id": "wallet-review-1778596292693-c1-b1",
+      "reviewed_at_ms": 1778596302838,
+      "reviewed_at_iso": "2026-05-12T14:31:42.838Z"
+    },
+    {
+      "wallet_address": "2tMtxBCdF7NWZxVdmBU2DFYBapEAruJVR7KWmZYSkroi",
+      "llm_verdict": "genuine_smart_trader",
+      "llm_confidence": 70,
+      "llm_reasoning": "High win rate and preferred mcap <100K with positive PnL, but local sightings are entirely holder signals so recent trading behavior is not captured.",
+      "recommended_action": "watch",
+      "batch_id": "wallet-review-1778596292693-c1-b1",
+      "reviewed_at_ms": 1778596302838,
+      "reviewed_at_iso": "2026-05-12T14:31:42.838Z"
+    },
+    {
+      "wallet_address": "2xTAbVhrFdHybZnxjkwfkQHLvkRKMfggL641mFKj8xWD",
+      "llm_verdict": "inflated_or_wash",
+      "llm_confidence": 65,
+      "llm_reasoning": "Low win rate, negative local PnL, and profile flags indicate negative_pnl; likely noisy or underperforming despite positive aggregate PnL.",
+      "recommended_action": "demote",
+      "batch_id": "wallet-review-1778596292693-c1-b1",
+      "reviewed_at_ms": 1778596302838,
+      "reviewed_at_iso": "2026-05-12T14:31:42.838Z"
+    },
+    {
+      "wallet_address": "43QmFc2QPPGyMrSNuPnhvfs8BFW1XVZYFdbwURtWoo9x",
+      "llm_verdict": "genuine_smart_trader",
+      "llm_confidence": 85,
+      "llm_reasoning": "Highest win rate among candidates, positive PnL, preferred mcap <100K, and owner-labeled as profitable, though local sightings are holder-only.",
+      "recommended_action": "keep",
+      "batch_id": "wallet-review-1778596292693-c1-b1",
+      "reviewed_at_ms": 1778596302838,
+      "reviewed_at_iso": "2026-05-12T14:31:42.838Z"
+    },
+    {
+      "wallet_address": "55ZQuSoWHxHkCxzZvU4QP6FyNAcc6y62d3FKiEghPzAH",
+      "llm_verdict": "genuine_smart_trader",
+      "llm_confidence": 85,
+      "llm_reasoning": "OKX analytics show strong profitability (PnL $4,785) and high win rate (68.66%), with 174 buys in <100K mcap range matching target strategy; harvester sightings are holder-only due to data limitations.",
+      "recommended_action": "promote",
+      "batch_id": "wallet-review-1778596292693-c1-b2",
+      "reviewed_at_ms": 1778596313714,
+      "reviewed_at_iso": "2026-05-12T14:31:53.714Z"
+    },
+    {
+      "wallet_address": "69z4qTgQ5DBRTJvnQzx2h8jZhNsv5UgADotEwwKUm2JS",
+      "llm_verdict": "inflated_or_wash",
+      "llm_confidence": 90,
+      "llm_reasoning": "KOL-like wallet with negative PnL (-$8,066) and low win rate (33.33%); manual label confirms noisy KOL with no stored profitable trader actions.",
+      "recommended_action": "remove",
+      "batch_id": "wallet-review-1778596292693-c1-b2",
+      "reviewed_at_ms": 1778596313714,
+      "reviewed_at_iso": "2026-05-12T14:31:53.714Z"
+    },
+    {
+      "wallet_address": "6Dt9J7TXM3eqyQBAZMbGJCV6VsP13WVStwPJnLPFtw2Y",
+      "llm_verdict": "genuine_smart_trader",
+      "llm_confidence": 75,
+      "llm_reasoning": "OKX data shows profitability (PnL $508.68) and decent win rate (59.55%), with preferred mcap 100K-1M aligning with target strategy; harvester context sparse but analytics indicate active trading.",
+      "recommended_action": "keep",
+      "batch_id": "wallet-review-1778596292693-c1-b2",
+      "reviewed_at_ms": 1778596313714,
+      "reviewed_at_iso": "2026-05-12T14:31:53.714Z"
+    },
+    {
+      "wallet_address": "6EDaVsS6enYgJ81tmhEkiKFcb4HuzPUVFZeom6PHUqN3",
+      "llm_verdict": "copy_trader",
+      "llm_confidence": 70,
+      "llm_reasoning": "KOL-like wallet with mixed profitability (OKX PnL $4,851 but harvester PnL -$69.60); likely follows KOL signals rather than independent smart trading, given high follower count and noisy flow.",
+      "recommended_action": "watch",
+      "batch_id": "wallet-review-1778596292693-c1-b2",
+      "reviewed_at_ms": 1778596313714,
+      "reviewed_at_iso": "2026-05-12T14:31:53.714Z"
+    },
+    {
+      "wallet_address": "719sfKUjiMThumTt2u39VMGn612BZyCcwbM5Pe8SqFYz",
+      "llm_verdict": "inflated_or_wash",
+      "llm_confidence": 85,
+      "llm_reasoning": "KOL-like wallet with negative PnL (-$4,986.51) and low win rate (30.72%); manual label explicitly marks as noisy KOL with no profitable trader activity.",
+      "recommended_action": "remove",
+      "batch_id": "wallet-review-1778596292693-c1-b2",
+      "reviewed_at_ms": 1778596313714,
+      "reviewed_at_iso": "2026-05-12T14:31:53.714Z"
+    }
+  ]
+}

@@ -13,7 +13,9 @@ export function setSetting(key, value) {
 
 export function boolSetting(key, fallback = false) {
   const value = setting(key, fallback ? 'true' : 'false');
-  return value === 'true' || value === '1' || value === 'yes';
+  if (value === 'true' || value === '1' || value === 'yes') return true;
+  if (value === 'false' || value === '0' || value === 'no' || value === 'off') return false;
+  return fallback;
 }
 
 export function numSetting(key, fallback = 0) {
@@ -22,6 +24,15 @@ export function numSetting(key, fallback = 0) {
 }
 
 const strategyCache = { id: null, config: null, at: 0 };
+const strategyDefaults = {
+  max_hold_if_no_tp_ms: 0,
+  early_token_age_ms: 0,
+  early_token_sl_percent: null,
+};
+
+function withStrategyDefaults(config) {
+  return { ...strategyDefaults, ...config };
+}
 
 export function activeStrategy() {
   if (strategyCache.config && Date.now() - strategyCache.at < 5000) return strategyCache.config;
@@ -31,7 +42,7 @@ export function activeStrategy() {
     if (fallback) return fallback;
     return defaultStrategy();
   }
-  const config = { id: row.id, name: row.name, ...JSON.parse(row.config_json) };
+  const config = withStrategyDefaults({ id: row.id, name: row.name, ...JSON.parse(row.config_json) });
   strategyCache.id = row.id;
   strategyCache.config = config;
   strategyCache.at = Date.now();
@@ -41,7 +52,7 @@ export function activeStrategy() {
 export function strategyById(id) {
   const row = db.prepare('SELECT * FROM strategies WHERE id = ?').get(id);
   if (!row) return null;
-  return { id: row.id, name: row.name, ...JSON.parse(row.config_json) };
+  return withStrategyDefaults({ id: row.id, name: row.name, ...JSON.parse(row.config_json) });
 }
 
 export function allStrategies() {
@@ -49,7 +60,7 @@ export function allStrategies() {
     id: row.id,
     name: row.name,
     enabled: Boolean(row.enabled),
-    ...JSON.parse(row.config_json),
+    ...withStrategyDefaults(JSON.parse(row.config_json)),
   }));
 }
 
@@ -86,6 +97,8 @@ function defaultStrategy() {
     position_size_sol: 0.1, max_open_positions: 3,
     tp_percent: 50, sl_percent: -25, trailing_enabled: true, trailing_percent: 20,
     partial_tp: false, partial_tp_at_percent: 0, partial_tp_sell_percent: 0,
-    max_hold_ms: 0, use_llm: true, llm_min_confidence: 50,
+    max_hold_ms: 0, max_hold_if_no_tp_ms: 0,
+    early_token_age_ms: 0, early_token_sl_percent: null,
+    use_llm: true, llm_min_confidence: 50,
   };
 }

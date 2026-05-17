@@ -3,6 +3,7 @@ import { ENABLE_LLM, LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, LLM_TIMEOUT_MS } from
 import { now, json, stripThinking, strictJsonFromText } from '../utils.js';
 import { fmtPct } from '../format.js';
 import { db } from '../db/connection.js';
+import { numSetting } from '../db/settings.js';
 
 export function fallbackLessons(summary) {
   const lessons = [];
@@ -39,6 +40,7 @@ export function fallbackLessons(summary) {
 export async function generateLessons(summary) {
   const fallback = fallbackLessons(summary);
   if (!ENABLE_LLM || !LLM_API_KEY) return { lessons: fallback, raw: { fallback: true } };
+  const timeoutMs = numSetting('llm_timeout_ms', LLM_TIMEOUT_MS);
   try {
     const res = await axios.post(`${LLM_BASE_URL.replace(/\/$/, '')}/chat/completions`, {
       model: LLM_MODEL,
@@ -65,7 +67,7 @@ export async function generateLessons(summary) {
         },
       ],
     }, {
-      timeout: LLM_TIMEOUT_MS,
+      timeout: timeoutMs,
       headers: { authorization: `Bearer ${LLM_API_KEY}`, 'content-type': 'application/json' },
     });
     const parsed = strictJsonFromText(res.data?.choices?.[0]?.message?.content || '');

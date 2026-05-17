@@ -12,12 +12,13 @@ import {
   mainMenuText,
   walletsText,
   positionsText,
+  positionsKeyboard,
   candidateButtons,
   sendTpSlDefaults,
   strategyMenuText,
   strategyKeyboard,
 } from './menus.js';
-import { sendTelegram, sendBatch, sendPositionOpen, sendTradeIntent } from './send.js';
+import { sendTelegram, sendBatch, sendPositionOpen, sendTradeIntent, sendPnl } from './send.js';
 import { candidateSummary } from './format.js';
 import { candidateById, updateCandidateStatus } from '../db/candidates.js';
 import { storeDecision, logDecisionEvent } from '../db/decisions.js';
@@ -25,10 +26,15 @@ import { createDryRunPosition, canOpenMorePositions, openPositionCount, tradingM
 import { executeLiveBuy, executeConfirmedIntent, rejectIntent } from '../execution/router.js';
 import { sendCandidate, sendPosition, closePosition, updatePositionRule, toggleTrailing } from './commands.js';
 import { requestNumericFilterInput, requestStrategyNumericInput } from './input.js';
+import { isAuthorizedTelegramCallback } from './auth.js';
 
 export async function handleCallback(query) {
   const data = query.data || '';
   const chatId = query.message?.chat?.id || TELEGRAM_CHAT_ID;
+  if (!isAuthorizedTelegramCallback(query)) {
+    await answerCallback(query, 'Unauthorized');
+    return null;
+  }
   await answerCallback(query);
   if (!data.startsWith('input:') && !data.startsWith('stratinput:')) {
     const { pendingNumericInputs } = await import('./input.js');
@@ -52,9 +58,8 @@ export async function handleCallback(query) {
   if (data === 'menu:filters') return editMenuMessage(query, filtersText(), filtersKeyboard());
   if (data === 'menu:strategy') return editMenuMessage(query, strategyMenuText(), strategyKeyboard());
   if (data === 'menu:wallets') return editMenuMessage(query, walletsText(), navKeyboard());
-  if (data === 'menu:positions') return editMenuMessage(query, positionsText(), navKeyboard());
+  if (data === 'menu:positions') return editMenuMessage(query, positionsText(), positionsKeyboard());
   if (data === 'menu:pnl') {
-    const { sendPnl } = await import('./send.js');
     return sendPnl(chatId, query);
   }
   if (data === 'menu:settings') return editMenuMessage(query, `${agentText()}\n\n${filtersText()}`, navKeyboard([
@@ -173,6 +178,9 @@ const STRAT_PRESETS = {
   partial_tp_at_percent: [25, 50, 75, 100, 150, 200],
   partial_tp_sell_percent: [25, 33, 50, 75],
   max_hold_ms: [0, 1800000, 3600000, 7200000, 14400000, 28800000, 86400000],
+  max_hold_if_no_tp_ms: [0, 1800000, 3600000, 7200000, 14400000, 28800000, 86400000],
+  breakeven_after_profit_percent: [0, 25, 50, 75, 100, 150, 200],
+  breakeven_lock_percent: [0, 10, 25, 50, -5, -10],
   min_fee_claim_sol: [0, 0.5, 1, 2, 5, 10],
   min_gmgn_total_fee_sol: [0, 3, 5, 10, 20],
   max_ath_distance_pct: [0, -20, -30, -40, -50, -60],
@@ -180,7 +188,7 @@ const STRAT_PRESETS = {
 };
 
 function formatStratValue(key, value) {
-  if (key === 'max_hold_ms' || key === 'token_age_max_ms') {
+  if (key === 'max_hold_ms' || key === 'max_hold_if_no_tp_ms' || key === 'token_age_max_ms') {
     return value > 0 ? `${Math.round(value / 60000)}m` : 'off';
   }
   if (key.includes('percent') || key.includes('pct')) return `${value}%`;
@@ -240,6 +248,7 @@ async function updateSettingFromButton(query, key, value) {
     'trending_max_bundler_rate',
     'trading_mode',
     'llm_min_confidence',
+    'llm_timeout_ms',
     'llm_candidate_pick_count',
     'llm_candidate_max_age_ms',
     'max_open_positions',
@@ -251,10 +260,10 @@ async function updateSettingFromButton(query, key, value) {
   ]);
   if (!valid.has(key) || value == null) return bot.sendMessage(chatId, 'Unknown setting.');
   setSetting(key, value);
-  const text = key.startsWith('default_') || key === 'dry_run_buy_sol' || key === 'trading_mode' || key === 'llm_min_confidence' || key === 'llm_candidate_pick_count' || key === 'llm_candidate_max_age_ms' || key === 'max_open_positions'
+  const text = key.startsWith('default_') || key === 'dry_run_buy_sol' || key === 'trading_mode' || key === 'llm_min_confidence' || key === 'llm_timeout_ms' || key === 'llm_candidate_pick_count' || key === 'llm_candidate_max_age_ms' || key === 'max_open_positions'
     ? agentText()
     : filtersText();
-  const extra = key.startsWith('default_') || key === 'dry_run_buy_sol' || key === 'trading_mode' || key === 'llm_min_confidence' || key === 'llm_candidate_pick_count' || key === 'llm_candidate_max_age_ms' || key === 'max_open_positions'
+  const extra = key.startsWith('default_') || key === 'dry_run_buy_sol' || key === 'trading_mode' || key === 'llm_min_confidence' || key === 'llm_timeout_ms' || key === 'llm_candidate_pick_count' || key === 'llm_candidate_max_age_ms' || key === 'max_open_positions'
     ? agentKeyboard()
     : filtersKeyboard();
   return editMenuMessage(query, text, extra);

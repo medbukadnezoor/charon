@@ -1,0 +1,124 @@
+{
+  "generated_at": "2026-05-12T14:26:23.258Z",
+  "model": "mimo-v2.5-pro",
+  "base_url": "https://api.xiaomimimo.com/v1",
+  "batch_id": "wallet-review-1778595983258",
+  "batch_ids": [
+    "wallet-review-1778595963653-c1-b1",
+    "wallet-review-1778595963653-c1-b2"
+  ],
+  "wallet_count": 10,
+  "verdict_counts": {
+    "insufficient_data": 5,
+    "genuine_smart_trader": 1,
+    "inflated_or_wash": 4
+  },
+  "action_counts": {
+    "demote": 3,
+    "keep": 1,
+    "remove": 3,
+    "watch": 3
+  },
+  "rows": [
+    {
+      "wallet_address": "2NuAgVk3hcb7s4YvP4GjV5fD8eDvZQv5wuN6ZC8igRfV",
+      "llm_verdict": "insufficient_data",
+      "llm_confidence": 75,
+      "llm_reasoning": "All recent sightings are holder-only with unavailable trade amounts; no GMGN analytics and only one sell in aggregate stats, making it impossible to assess trading behavior.",
+      "recommended_action": "demote",
+      "batch_id": "wallet-review-1778595963653-c1-b1",
+      "reviewed_at_ms": 1778595975058,
+      "reviewed_at_iso": "2026-05-12T14:26:15.058Z"
+    },
+    {
+      "wallet_address": "2ji39D4iDuDR1m7rpJcS5ci86PLgBQkWPgwya8YQvY4h",
+      "llm_verdict": "genuine_smart_trader",
+      "llm_confidence": 65,
+      "llm_reasoning": "Has one large sell on a high-mcap token and holder sightings on micro-cap targets; manual label indicates data-sufficient GMGN snapshot, suggesting active trading.",
+      "recommended_action": "keep",
+      "batch_id": "wallet-review-1778595963653-c1-b1",
+      "reviewed_at_ms": 1778595975058,
+      "reviewed_at_iso": "2026-05-12T14:26:15.058Z"
+    },
+    {
+      "wallet_address": "2tMtxBCdF7NWZxVdmBU2DFYBapEAruJVR7KWmZYSkroi",
+      "llm_verdict": "insufficient_data",
+      "llm_confidence": 80,
+      "llm_reasoning": "Only holder sightings with unavailable amounts; no trader actions or GMGN analytics to validate as a smart trader.",
+      "recommended_action": "demote",
+      "batch_id": "wallet-review-1778595963653-c1-b1",
+      "reviewed_at_ms": 1778595975058,
+      "reviewed_at_iso": "2026-05-12T14:26:15.058Z"
+    },
+    {
+      "wallet_address": "2xTAbVhrFdHybZnxjkwfkQHLvkRKMfggL641mFKj8xWD",
+      "llm_verdict": "inflated_or_wash",
+      "llm_confidence": 70,
+      "llm_reasoning": "Negative PnL, no trader actions, only holder sightings, and owner notes large drawdowns; not profitable.",
+      "recommended_action": "remove",
+      "batch_id": "wallet-review-1778595963653-c1-b1",
+      "reviewed_at_ms": 1778595975058,
+      "reviewed_at_iso": "2026-05-12T14:26:15.058Z"
+    },
+    {
+      "wallet_address": "43QmFc2QPPGyMrSNuPnhvfs8BFW1XVZYFdbwURtWoo9x",
+      "llm_verdict": "insufficient_data",
+      "llm_confidence": 80,
+      "llm_reasoning": "All sightings are holder-only with unavailable amounts; despite manual label as profitable, no trader activity in stored data to confirm.",
+      "recommended_action": "watch",
+      "batch_id": "wallet-review-1778595963653-c1-b1",
+      "reviewed_at_ms": 1778595975058,
+      "reviewed_at_iso": "2026-05-12T14:26:15.058Z"
+    },
+    {
+      "wallet_address": "55ZQuSoWHxHkCxzZvU4QP6FyNAcc6y62d3FKiEghPzAH",
+      "llm_verdict": "insufficient_data",
+      "llm_confidence": 60,
+      "llm_reasoning": "Holder-only sightings with negative PnL and unavailable GMGN/OKX analytics; cannot confirm smart trading despite owner label.",
+      "recommended_action": "watch",
+      "batch_id": "wallet-review-1778595963653-c1-b2",
+      "reviewed_at_ms": 1778595983256,
+      "reviewed_at_iso": "2026-05-12T14:26:23.256Z"
+    },
+    {
+      "wallet_address": "69z4qTgQ5DBRTJvnQzx2h8jZhNsv5UgADotEwwKUm2JS",
+      "llm_verdict": "inflated_or_wash",
+      "llm_confidence": 75,
+      "llm_reasoning": "KOL-like wallet with positive PnL but only holder sightings, no trading activity, and owner label indicates it is just a KOL.",
+      "recommended_action": "remove",
+      "batch_id": "wallet-review-1778595963653-c1-b2",
+      "reviewed_at_ms": 1778595983256,
+      "reviewed_at_iso": "2026-05-12T14:26:23.256Z"
+    },
+    {
+      "wallet_address": "6Dt9J7TXM3eqyQBAZMbGJCV6VsP13WVStwPJnLPFtw2Y",
+      "llm_verdict": "insufficient_data",
+      "llm_confidence": 65,
+      "llm_reasoning": "Positive PnL but only holder sightings with no trade data and unavailable wallet analytics; owner label suggests mixed profitability.",
+      "recommended_action": "watch",
+      "batch_id": "wallet-review-1778595963653-c1-b2",
+      "reviewed_at_ms": 1778595983256,
+      "reviewed_at_iso": "2026-05-12T14:26:23.256Z"
+    },
+    {
+      "wallet_address": "6EDaVsS6enYgJ81tmhEkiKFcb4HuzPUVFZeom6PHUqN3",
+      "llm_verdict": "inflated_or_wash",
+      "llm_confidence": 80,
+      "llm_reasoning": "KOL-like wallet with negative PnL, no stored trader actions, and owner label indicates it is a noisy KOL.",
+      "recommended_action": "demote",
+      "batch_id": "wallet-review-1778595963653-c1-b2",
+      "reviewed_at_ms": 1778595983256,
+      "reviewed_at_iso": "2026-05-12T14:26:23.256Z"
+    },
+    {
+      "wallet_address": "719sfKUjiMThumTt2u39VMGn612BZyCcwbM5Pe8SqFYz",
+      "llm_verdict": "inflated_or_wash",
+      "llm_confidence": 85,
+      "llm_reasoning": "KOL-like wallet with negative PnL, no trading activity, and owner label explicitly marks it as noisy and not profitable.",
+      "recommended_action": "remove",
+      "batch_id": "wallet-review-1778595963653-c1-b2",
+      "reviewed_at_ms": 1778595983256,
+      "reviewed_at_iso": "2026-05-12T14:26:23.256Z"
+    }
+  ]
+}

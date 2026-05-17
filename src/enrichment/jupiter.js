@@ -1,9 +1,25 @@
 import axios from 'axios';
 import { WSOL_MINT, JSON_HEADERS } from '../config.js';
 import { now } from '../utils.js';
+import { normalizeTrendingRiskFields } from './trendingRisk.js';
 
 const jupiterAssetCache = new Map();
 let jupiterAssetBackoffUntil = 0;
+
+function providerStubsEnabled() {
+  return process.env.CHARON_PROVIDER_STUBS === 'true';
+}
+
+function shadowMint(mint) {
+  return mint || process.env.CHARON_SHADOW_MINT || 'SHADOW_MINT_FOR_CANDIDATE_BUILDER_CHECK';
+}
+
+function shadowHolderAddresses() {
+  return String(process.env.CHARON_SHADOW_HOLDER_ADDRESSES || '')
+    .split(',')
+    .map(address => address.trim())
+    .filter(Boolean);
+}
 
 function jupiterAssetBackoffActive() {
   return now() < jupiterAssetBackoffUntil;
@@ -30,6 +46,11 @@ function normalizeJupiterTrendingRow(row, interval, rank) {
   const numSells = Number(stats.numSells ?? 0);
   const topHolders = Number(row?.audit?.topHoldersPercentage);
   const botHolders = Number(row?.audit?.botHoldersPercentage);
+  const risk = normalizeTrendingRiskFields(row, {
+    source: 'jupiter_toptrending',
+    bundlerRate: Number.isFinite(botHolders) ? botHolders / 100 : null,
+    unsupported: ['rug_ratio', 'is_wash_trading'],
+  });
   return {
     ...row,
     address: row?.id,
@@ -46,8 +67,10 @@ function normalizeJupiterTrendingRow(row, interval, rank) {
     launchpad_status: row?.graduatedAt ? '2' : null,
     smart_degen_count: Number(stats.numOrganicBuyers ?? 0),
     hot_level: Number(row?.organicScore ?? 0),
-    rug_ratio: null,
-    bundler_rate: Number.isFinite(botHolders) ? botHolders / 100 : null,
+    rug_ratio: risk.rug_ratio,
+    bundler_rate: risk.bundler_rate,
+    is_wash_trading: risk.is_wash_trading,
+    risk_field_availability: risk.risk_field_availability,
     source: 'jupiter_toptrending',
     interval,
     rank,
@@ -56,6 +79,20 @@ function normalizeJupiterTrendingRow(row, interval, rank) {
 }
 
 async function fetchJupiterAsset(mint, { useCache = true, ttlMs = 20_000 } = {}) {
+  if (providerStubsEnabled()) {
+    return {
+      id: mint,
+      name: 'Shadow Candidate',
+      symbol: 'SHADOW',
+      usdPrice: 0.0001,
+      mcap: 100000,
+      fdv: 100000,
+      liquidity: 25000,
+      holderCount: 100,
+      twitter: '',
+      website: '',
+    };
+  }
   const cached = jupiterAssetCache.get(mint);
   if (useCache && cached && now() - cached.at < ttlMs) return cached.data;
   if (jupiterAssetBackoffActive()) return cached?.data || null;
@@ -99,6 +136,22 @@ async function estimateTokenAmountFromSol(sizeSol, entryPrice) {
 }
 
 async function fetchJupiterHolders(mint) {
+  if (providerStubsEnabled()) {
+    const mapped = shadowHolderAddresses().map((address, index) => ({
+      address,
+      rank: index + 1,
+      amount: 1,
+      percent: null,
+      tags: [],
+    }));
+    return {
+      count: mapped.length,
+      holders: mapped,
+      top20: mapped.slice(0, 20),
+      top20Percent: null,
+      maxHolderPercent: null,
+    };
+  }
   try {
     const res = await axios.get(`https://datapi.jup.ag/v1/holders/${mint}`, {
       timeout: 10_000,
@@ -171,6 +224,29 @@ async function fetchJupiterChartWindow(mint, interval, candles, label) {
 }
 
 async function fetchJupiterChartContext(mint) {
+  if (providerStubsEnabled()) {
+    return {
+      quote: 'native',
+      purpose: 'shadow provider stub',
+      currentNative: 0.0001,
+      rangeHighNative: 0.0002,
+      belowRangeHighPercent: -50,
+      distanceFromAthPercent: -50,
+      topBlastRisk: false,
+      windows: [{
+        label: 'ath_context_24h_5m',
+        available: true,
+        purpose: 'ath_context',
+        candles: 1,
+        current: 0.0001,
+        high: 0.0002,
+        low: 0.00005,
+        distanceFromHighPercent: -50,
+        belowHighPercent: -50,
+        aboveLowPercent: 100,
+      }],
+    };
+  }
   const windows = [
     ['5_MINUTE', 288, 'ath_context_24h_5m'],
     ['1_HOUR', 168, 'swing_7d_1h'],
@@ -207,6 +283,14 @@ const IGNORED_PNL_MINTS = new Set([
 ]);
 
 async function fetchJupiterWalletPnl(walletAddress) {
+  if (providerStubsEnabled()) {
+    return {
+      [shadowMint()]: {
+        pnlPercent: null,
+        pnlUsd: null,
+      },
+    };
+  }
   try {
     const url = new URL('https://datapi.jup.ag/v1/pnl');
     url.searchParams.set('addresses', walletAddress);

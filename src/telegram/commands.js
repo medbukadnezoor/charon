@@ -16,6 +16,7 @@ import {
   mainMenuText,
   walletsText,
   positionsText,
+  positionsKeyboard,
   candidateButtons,
   positionButtons,
   strategyMenuText,
@@ -28,9 +29,10 @@ import { executeLiveSell } from '../execution/router.js';
 import { handleCallback, editMenuMessage } from './callbacks.js';
 import { consumeNumericFilterInput } from './input.js';
 import { runLearning, sendLessons } from '../learning/commands.js';
-import { fetchWalletPnl } from '../enrichment/wallets.js';
+import { isAuthorizedTelegramUpdate } from './auth.js';
 
 export async function handleMessage(msg) {
+  if (!isAuthorizedTelegramUpdate(msg)) return;
   const text = (msg.text || '').trim();
   const chatId = msg.chat.id;
   if (await consumeNumericFilterInput(chatId, text, msg.message_id)) return;
@@ -56,11 +58,11 @@ export async function handleMessage(msg) {
     const [, id, key, ...rest] = parts;
     const value = rest.join(' ');
     if (!id || !key || !value) {
-      return bot.sendMessage(chatId, 'Usage: /stratset <strategy_id> <key> <value>\n\nExample: /stratset sniper tp_percent 75\n\nKeys: tp_percent, sl_percent, position_size_sol, max_open_positions, min_mcap_usd, max_mcap_usd, min_holders, trailing_enabled, trailing_percent, partial_tp, partial_tp_at_percent, partial_tp_sell_percent, max_hold_ms, use_llm, llm_min_confidence, min_source_count, require_fee_claim, min_fee_claim_sol, min_gmgn_total_fee_sol, max_ath_distance_pct');
+      return bot.sendMessage(chatId, 'Usage: /stratset <strategy_id> <key> <value>\n\nExample: /stratset sniper tp_percent 75\n\nKeys: tp_percent, sl_percent, position_size_sol, max_open_positions, min_mcap_usd, max_mcap_usd, min_holders, trailing_enabled, trailing_percent, partial_tp, partial_tp_at_percent, partial_tp_sell_percent, max_hold_ms, max_hold_if_no_tp_ms, breakeven_after_profit_percent, breakeven_lock_percent, use_llm, llm_min_confidence, min_source_count, require_fee_claim, min_fee_claim_sol, min_gmgn_total_fee_sol, max_ath_distance_pct');
     }
     const strat = strategyById(id);
     if (!strat) return bot.sendMessage(chatId, `Strategy "${id}" not found.`);
-    const numKeys = new Set(['tp_percent', 'sl_percent', 'position_size_sol', 'max_open_positions', 'min_mcap_usd', 'max_mcap_usd', 'min_holders', 'max_top20_holder_percent', 'trailing_percent', 'partial_tp_at_percent', 'partial_tp_sell_percent', 'max_hold_ms', 'llm_min_confidence', 'min_source_count', 'min_fee_claim_sol', 'min_gmgn_total_fee_sol', 'max_ath_distance_pct', 'token_age_max_ms', 'trending_min_volume_usd', 'trending_min_swaps', 'trending_max_rug_ratio', 'trending_max_bundler_rate', 'min_saved_wallet_holders', 'min_graduated_volume_usd']);
+    const numKeys = new Set(['tp_percent', 'sl_percent', 'position_size_sol', 'max_open_positions', 'min_mcap_usd', 'max_mcap_usd', 'min_holders', 'max_top20_holder_percent', 'trailing_percent', 'partial_tp_at_percent', 'partial_tp_sell_percent', 'max_hold_ms', 'max_hold_if_no_tp_ms', 'breakeven_after_profit_percent', 'breakeven_lock_percent', 'llm_min_confidence', 'min_source_count', 'min_fee_claim_sol', 'min_gmgn_total_fee_sol', 'max_ath_distance_pct', 'token_age_max_ms', 'trending_min_volume_usd', 'trending_min_swaps', 'trending_max_rug_ratio', 'trending_max_bundler_rate', 'min_saved_wallet_holders', 'min_graduated_volume_usd']);
     const boolKeys = new Set(['trailing_enabled', 'partial_tp', 'use_llm', 'require_fee_claim']);
     const newConfig = { ...strat };
     delete newConfig.id;
@@ -75,7 +77,10 @@ export async function handleMessage(msg) {
     updateStrategyConfig(id, newConfig);
     return bot.sendMessage(chatId, `Updated ${id}.${key} = ${value}\n\n${strategyMenuText()}`, { parse_mode: 'HTML' });
   }
-  if (text.startsWith('/pnl')) return sendPnl(chatId);
+  if (text.startsWith('/pnl')) {
+    const { sendPnl } = await import('./send.js');
+    return sendPnl(chatId);
+  }
   if (text.startsWith('/learn')) {
     const windowArg = text.split(/\s+/)[1] || '12h';
     return runLearning(chatId, windowArg);
@@ -103,7 +108,13 @@ export async function handleMessage(msg) {
     db.prepare('DELETE FROM saved_wallets WHERE label = ?').run(label);
     return bot.sendMessage(chatId, `Removed ${label}.`);
   }
-  if (text.startsWith('/wallets')) return handleCallback({ id: 'manual', data: 'menu:wallets', message: { chat: { id: chatId } } });
+  if (text.startsWith('/wallets')) {
+    return bot.sendMessage(chatId, walletsText(), {
+      parse_mode: 'HTML',
+      disable_web_page_preview: true,
+      ...navKeyboard(),
+    });
+  }
   if (text.startsWith('/setfilter')) {
     const { key, value } = parseSetFilter(text);
     const valid = new Set([
@@ -126,14 +137,22 @@ export async function handleMessage(msg) {
       'trending_max_bundler_rate',
       'trading_mode',
       'llm_min_confidence',
+      'llm_timeout_ms',
       'llm_candidate_pick_count',
       'llm_candidate_max_age_ms',
+      'llm_payload_budget_kb',
+      'llm_max_conclusions_per_candidate',
+      'llm_rpc_enrichment_enabled',
+      'llm_payload_debug_log',
+      'llm_intelligence_enabled',
       'max_open_positions',
       'dry_run_buy_sol',
       'default_tp_percent',
       'default_sl_percent',
       'default_trailing_enabled',
       'default_trailing_percent',
+      'dry_run_slippage_pct',
+      'dry_run_fee_pct',
     ]);
     if (!valid.has(key) || value == null) {
       return bot.sendMessage(chatId, `Usage: /setfilter &lt;name&gt; &lt;value&gt;\n\n${filtersText()}`, { parse_mode: 'HTML' });
@@ -155,9 +174,11 @@ export async function sendCandidate(chatId, id) {
 }
 
 export async function sendPositions(chatId) {
-  const rows = allPositions(12);
-  const text = rows.length ? rows.map(formatPosition).join('\n\n') : 'No dry-run positions yet.';
-  await bot.sendMessage(chatId, `📍 <b>Positions</b>\n\n${text}`, { parse_mode: 'HTML', disable_web_page_preview: true });
+  await bot.sendMessage(chatId, positionsText(), {
+    parse_mode: 'HTML',
+    disable_web_page_preview: true,
+    ...positionsKeyboard(),
+  });
 }
 
 export async function sendPosition(chatId, id, query = null) {
@@ -181,8 +202,18 @@ export async function closePosition(chatId, id, reason) {
   const result = await refreshPosition(row, { autoExit: false });
   const price = result?.price ?? row.high_water_price ?? row.entry_price;
   const mcap = result?.mcap ?? row.high_water_mcap ?? row.entry_mcap;
-  const pnlPercent = row.entry_mcap ? (Number(mcap) / Number(row.entry_mcap) - 1) * 100 : 0;
-  const pnlSol = Number(row.size_sol) * pnlPercent / 100;
+  let pnlPercent;
+  let pnlSol;
+  if (row.execution_mode === 'live') {
+    pnlPercent = row.entry_mcap ? (Number(mcap) / Number(row.entry_mcap) - 1) * 100 : 0;
+    pnlSol = Number(row.size_sol) * pnlPercent / 100;
+  } else {
+    const drySlippagePct = numSetting('dry_run_slippage_pct', 1.0);
+    const dryFeePct = numSetting('dry_run_fee_pct', 0.2);
+    const effectiveExitMcap = Number(mcap) * (1 - drySlippagePct / 100);
+    pnlPercent = row.entry_mcap ? (effectiveExitMcap / Number(row.entry_mcap) - 1) * 100 : 0;
+    pnlSol = Number(row.size_sol) * pnlPercent / 100 - Number(row.size_sol) * (dryFeePct / 100);
+  }
   let sell = null;
   if (row.execution_mode === 'live') sell = await executeLiveSell(row, reason);
   db.prepare(`
@@ -268,29 +299,6 @@ async function sendMenu(chatId = TELEGRAM_CHAT_ID) {
   });
 }
 
-async function sendPnl(chatId, query = null) {
-  const wallets = savedWallets();
-  if (!wallets.length) {
-    const text = '📊 <b>PnL</b>\n\nNo saved wallets. Use /walletadd &lt;label&gt; &lt;address&gt;.';
-    return query ? editMenuMessage(query, text, navKeyboard()) : bot.sendMessage(chatId, text, { parse_mode: 'HTML' });
-  }
-  const chunks = [];
-  for (const wallet of wallets) {
-    const pnl = await fetchWalletPnl(wallet.address).catch(() => null);
-    if (!pnl) {
-      chunks.push(`• <b>${escapeHtml(wallet.label)}</b>: no data`);
-      continue;
-    }
-    chunks.push([
-      `• <b>${escapeHtml(wallet.label)}</b>`,
-      `Win: ${fmtPct(pnl.winRate)} · PnL: ${fmtPct(pnl.totalPnlPercent)}`,
-      `Trades: ${pnl.totalTrades} · Wins: ${pnl.wins}`,
-    ].join('\n'));
-  }
-  const text = `📊 <b>PnL</b>\n\n${chunks.join('\n\n')}`;
-  return query ? editMenuMessage(query, text, navKeyboard()) : bot.sendMessage(chatId, text, { parse_mode: 'HTML' });
-}
-
 function parseSetFilter(text) {
   const parts = text.trim().split(/\s+/);
   return { key: parts[1], value: parts[2] };
@@ -298,8 +306,4 @@ function parseSetFilter(text) {
 
 function allPositions(limit = 10) {
   return db.prepare('SELECT * FROM dry_run_positions ORDER BY id DESC LIMIT ?').all(limit);
-}
-
-function savedWallets() {
-  return db.prepare('SELECT * FROM saved_wallets ORDER BY label').all();
 }

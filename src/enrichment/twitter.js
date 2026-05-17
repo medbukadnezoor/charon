@@ -79,6 +79,7 @@ function viralityScore(metrics) {
 }
 
 async function fetchTwitterNarrative(graduatedCoin, gmgn) {
+  if (process.env.CHARON_PROVIDER_STUBS === 'true') return null;
   const url = extractTweetUrl(graduatedCoin) || extractTweetUrl(gmgn);
   if (!url) return null;
   try {

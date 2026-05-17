@@ -1,6 +1,8 @@
 import dotenv from 'dotenv';
 
-dotenv.config();
+if (process.env.CHARON_SKIP_DOTENV !== 'true') {
+  dotenv.config();
+}
 
 export const APP_NAME = 'Charon';
 export const DB_PATH = process.env.DB_PATH || './charon.sqlite';
@@ -20,6 +22,8 @@ export const JUPITER_API_KEY = process.env.JUPITER_API_KEY || '';
 export const SOLANA_PRIVATE_KEY = process.env.SOLANA_PRIVATE_KEY || process.env.PRIVATE_KEY || '';
 export const SOLANA_RPC_URL = process.env.SOLANA_RPC_URL || `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`;
 export const SOLANA_WS_URL = process.env.SOLANA_WS_URL || `wss://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`;
+export const PUMP_HELIUS_RPC_URL = process.env.PUMP_HELIUS_RPC_URL || '';
+export const PUMP_HELIUS_WS_URL = process.env.PUMP_HELIUS_WS_URL || '';
 export const JUPITER_SWAP_BASE_URL = process.env.JUPITER_SWAP_BASE_URL || 'https://api.jup.ag/swap/v2';
 export const JUPITER_SLIPPAGE_BPS = Number(process.env.JUPITER_SLIPPAGE_BPS || 300);
 export const LIVE_MIN_SOL_RESERVE_LAMPORTS = Math.floor(Number(process.env.LIVE_MIN_SOL_RESERVE || 0.02) * 1_000_000_000);
@@ -33,7 +37,7 @@ export const TRENDING_POLL_MS = Number(process.env.TRENDING_POLL_MS || 60_000);
 export const TRENDING_LOOKBACK_MS = Number(process.env.TRENDING_LOOKBACK_MS || 10 * 60 * 1000);
 export const GMGN_CACHE_TTL_MS = Number(process.env.GMGN_CACHE_TTL_MS || 5 * 60 * 1000);
 export const POSITION_CHECK_MS = Number(process.env.POSITION_CHECK_MS || 10_000);
-export const LLM_TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS || 60_000);
+export const LLM_TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS || 90_000);
 export const ENABLE_LLM = process.env.ENABLE_LLM !== 'false';
 export const SIGNAL_SERVER_URL = process.env.SIGNAL_SERVER_URL || 'http://localhost:3456';
 export const SIGNAL_SERVER_KEY = process.env.SIGNAL_SERVER_KEY || '';

@@ -1,6 +1,44 @@
 import axios from 'axios';
+import { normalizeTrendingRiskFields } from '../enrichment/trendingRisk.js';
 
 export const axiom = new Map();
+
+export function normalizeAxiomTrendingEntry(entry, timePeriod = '1h', rank = 0, seenAt = Date.now()) {
+  if (!Array.isArray(entry)) return null;
+  const mint = entry[1];
+  if (!mint) return null;
+  const risk = normalizeTrendingRiskFields({}, {
+    source: 'axiom_trending',
+    unsupported: ['rug_ratio', 'bundler_rate', 'is_wash_trading'],
+  });
+  return {
+    address: mint,
+    name: entry[2] || '',
+    symbol: entry[3] || '',
+    platform: entry[7] || null,
+    createdAt: entry[9] || null,
+    totalSupply: Number(entry[18] ?? 0),
+    holder_count: Number(entry[22] ?? 0),
+    volume: Number(entry[23] ?? 0),
+    price: Number(entry[29] ?? 0),
+    market_cap: 0,
+    liquidity: 0,
+    swaps: 0,
+    buys: 0,
+    sells: 0,
+    top_10_holder_rate: null,
+    rug_ratio: risk.rug_ratio,
+    bundler_rate: risk.bundler_rate,
+    is_wash_trading: risk.is_wash_trading,
+    risk_field_availability: risk.risk_field_availability,
+    hot_level: 0,
+    smart_degen_count: 0,
+    source: 'axiom_trending',
+    interval: timePeriod,
+    rank,
+    seenAt,
+  };
+}
 
 export async function fetchAxiomTrending(timePeriod = '1h') {
   try {
@@ -21,36 +59,7 @@ export async function fetchAxiomTrending(timePeriod = '1h') {
     const raw = Array.isArray(res.data) ? res.data : [];
     const seenAt = Date.now();
 
-    const rows = raw.map(entry => {
-      if (!Array.isArray(entry)) return null;
-      const mint = entry[1];
-      if (!mint) return null;
-      return {
-        address: mint,
-        name: entry[2] || '',
-        symbol: entry[3] || '',
-        platform: entry[7] || null,
-        createdAt: entry[9] || null,
-        totalSupply: Number(entry[18] ?? 0),
-        holder_count: Number(entry[22] ?? 0),
-        volume: Number(entry[23] ?? 0),
-        price: Number(entry[29] ?? 0),
-        market_cap: 0,
-        liquidity: 0,
-        swaps: 0,
-        buys: 0,
-        sells: 0,
-        top_10_holder_rate: null,
-        rug_ratio: null,
-        bundler_rate: null,
-        hot_level: 0,
-        smart_degen_count: 0,
-        source: 'axiom_trending',
-        interval: timePeriod,
-        rank: 0,
-        seenAt,
-      };
-    }).filter(Boolean);
+    const rows = raw.map(entry => normalizeAxiomTrendingEntry(entry, timePeriod, 0, seenAt)).filter(Boolean);
 
     rows.forEach((row, index) => {
       row.rank = index + 1;

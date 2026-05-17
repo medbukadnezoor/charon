@@ -1,0 +1,65 @@
+{
+  "ready_for_bounded_dry_run": true,
+  "charon_db_path": "/opt/trading-data/charon.sqlite",
+  "harvester_db_path": "/opt/trading-data/harvester.db",
+  "checks": {
+    "trading_mode_dry_run": true,
+    "saved_wallets_present": true,
+    "harvester_metadata_present": true,
+    "no_open_positions": true,
+    "no_pending_trade_intents": true,
+    "active_strategy_present": true
+  },
+  "settings": {
+    "agent_enabled": "true",
+    "dry_run_buy_sol": "0.1",
+    "llm_candidate_max_age_ms": "600000",
+    "llm_candidate_pick_count": "10",
+    "llm_min_confidence": "75",
+    "max_open_positions": "3",
+    "trading_mode": "dry_run"
+  },
+  "active_strategy": {
+    "id": "sniper",
+    "name": "Sniper",
+    "entry_mode": "immediate",
+    "use_llm": true,
+    "position_size_sol": 0.1,
+    "tp_percent": 50,
+    "sl_percent": -25,
+    "max_open_positions": 3,
+    "key_filters": {
+      "require_fee_claim": true,
+      "min_fee_claim_sol": 0.5,
+      "min_gmgn_total_fee_sol": 10,
+      "min_mcap_usd": 7000,
+      "max_mcap_usd": 200000,
+      "min_holders": 0,
+      "min_saved_wallet_holders": 0,
+      "max_ath_distance_pct": 0,
+      "trending_min_volume_usd": 0,
+      "trending_min_swaps": 0
+    }
+  },
+  "counts": {
+    "saved_wallets": 58,
+    "candidates": 0,
+    "dry_run_positions": 0,
+    "open_positions": 0,
+    "trade_intents": 0,
+    "pending_trade_intents": 0,
+    "decision_logs": 0,
+    "wallet_llm_reviews": null
+  },
+  "harvester_counts": {
+    "wallet_profiles": 68,
+    "owner_labels": 24
+  },
+  "blocked_scope": [
+    "no env inspection performed",
+    "no service start performed",
+    "no Telegram start performed",
+    "no provider or LLM calls performed",
+    "no trading/signing/swap path performed"
+  ]
+}

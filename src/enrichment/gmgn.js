@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { GMGN_API_KEY, GMGN_CACHE_TTL_MS, GMGN_ENABLED, JSON_HEADERS } from '../config.js';
 import { now, sleep } from '../utils.js';
 import { numSetting, setting } from '../db/settings.js';
+import { normalizeTrendingRiskFields } from './trendingRisk.js';
 
 const gmgnCache = new Map();
 let lastGmgnRequestAt = 0;
@@ -143,6 +144,20 @@ function tokenPriceFromGmgn(info) {
 }
 
 async function fetchGmgnTokenInfo(mint, useCache = true) {
+  if (process.env.CHARON_PROVIDER_STUBS === 'true') {
+    return {
+      address: mint,
+      name: 'Shadow Candidate',
+      symbol: 'SHADOW',
+      market_cap: 100000,
+      price: 0.0001,
+      liquidity: 25000,
+      holder_count: 100,
+      total_fee: 0,
+      trade_fee: 0,
+      link: { gmgn: `https://gmgn.ai/sol/token/${mint}` },
+    };
+  }
   if (!GMGN_ENABLED) return null;
   const cached = gmgnCache.get(mint);
   if (useCache && cached && now() - cached.at < GMGN_CACHE_TTL_MS) return cached.data;
@@ -178,6 +193,23 @@ function normalizedTrendingRows(payload) {
   return Array.isArray(rows) ? rows : [];
 }
 
+function normalizeGmgnTrendingRow(row, interval, rank, providerSideFilters = []) {
+  const risk = normalizeTrendingRiskFields(row, {
+    source: 'gmgn_market_rank',
+    providerSideFilters,
+  });
+  return {
+    ...row,
+    rug_ratio: risk.rug_ratio,
+    bundler_rate: risk.bundler_rate,
+    is_wash_trading: risk.is_wash_trading,
+    risk_field_availability: risk.risk_field_availability,
+    interval,
+    rank,
+    source: 'gmgn_market_rank',
+  };
+}
+
 export {
   gmgnFetch,
   fetchGmgnTokenInfo,
@@ -187,4 +219,5 @@ export {
   marketCapFromGmgn,
   tokenPriceFromGmgn,
   normalizedTrendingRows,
+  normalizeGmgnTrendingRow,
 };

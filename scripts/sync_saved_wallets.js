@@ -23,7 +23,7 @@ const REPO_ROOT = path.resolve(__dirname, '..');
 // Constants
 // ---------------------------------------------------------------------------
 
-const DEFAULT_HARVESTER_DB = '/Users/marcelyuwono/Trading Project Files/moonbags/tools/wallet-harvester/data/harvester.db';
+const DEFAULT_HARVESTER_DB = path.join(REPO_ROOT, '../moonbags/tools/wallet-harvester/data/harvester.db');
 const DEFAULT_CHARON_DB = path.join(REPO_ROOT, 'charon.sqlite');
 const PNL_FRESH_DAYS = 3;
 const MIN_OBSERVED_DAYS_FOR_FREQ = 3;

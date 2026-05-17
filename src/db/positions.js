@@ -6,6 +6,14 @@ export function openPositions() {
   return db.prepare('SELECT * FROM dry_run_positions WHERE status = ? ORDER BY opened_at_ms DESC').all('open');
 }
 
+export function hasOpenPositionForMint(mint) {
+  return Boolean(db.prepare(`
+    SELECT id FROM dry_run_positions
+    WHERE mint = ? AND status IN ('open', 'partial_exit')
+    LIMIT 1
+  `).get(mint));
+}
+
 export function openPositionCount() {
   return db.prepare('SELECT COUNT(*) AS count FROM dry_run_positions WHERE status = ?').get('open').count;
 }
@@ -26,15 +34,67 @@ export function allPositions(limit = 10) {
   return db.prepare('SELECT * FROM dry_run_positions ORDER BY id DESC LIMIT ?').all(limit);
 }
 
+function numericOrNull(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+}
+
+function earlyTokenSlSnapshot(candidate, strat, baseSlPercent) {
+  const tokenAgeMs = numericOrNull(candidate?.signals?.ageMs);
+  const ageTrusted = candidate?.signals?.ageTrusted;
+  const earlyTokenAgeMs = numericOrNull(strat.early_token_age_ms) ?? 0;
+  const earlyTokenSlPercent = numericOrNull(strat.early_token_sl_percent);
+  const maxHoldIfNoTpMs = numericOrNull(strat.max_hold_if_no_tp_ms) ?? 0;
+  const baseSl = Number(baseSlPercent);
+  const snapshot = {
+    base_sl_percent: baseSl,
+    effective_sl_percent: baseSl,
+    early_token_sl_percent: earlyTokenSlPercent,
+    early_token_age_ms: earlyTokenAgeMs,
+    token_age_ms: tokenAgeMs,
+    max_hold_if_no_tp_ms: maxHoldIfNoTpMs,
+    reason: 'early_token_sl_off',
+    applied: false,
+  };
+
+  if (earlyTokenSlPercent === null) return snapshot;
+  if (!Number.isFinite(earlyTokenSlPercent) || earlyTokenSlPercent >= 0) {
+    return { ...snapshot, reason: 'early_token_sl_invalid' };
+  }
+  if (!Number.isFinite(baseSl) || earlyTokenSlPercent >= baseSl) {
+    return { ...snapshot, reason: 'early_token_sl_not_wider' };
+  }
+  if (earlyTokenAgeMs <= 0) return { ...snapshot, reason: 'early_token_age_window_off' };
+  if (maxHoldIfNoTpMs <= 0) return { ...snapshot, reason: 'no_tp_time_stop_off' };
+  if (ageTrusted === false) return { ...snapshot, reason: 'token_age_untrusted' };
+  if (tokenAgeMs === null) return { ...snapshot, reason: 'token_age_missing' };
+  if (tokenAgeMs > earlyTokenAgeMs) return { ...snapshot, reason: 'token_not_early' };
+
+  return {
+    ...snapshot,
+    effective_sl_percent: earlyTokenSlPercent,
+    reason: 'early_token_with_no_tp_time_stop',
+    applied: true,
+  };
+}
+
 export function createDryRunPosition(candidateId, candidate, decision, reason = 'llm_buy') {
   const strat = activeStrategy();
   const sizeSol = strat.position_size_sol ?? numSetting('dry_run_buy_sol', 0.1);
-  const entryPrice = Number(candidate.metrics.priceUsd || 0) || null;
-  const entryMcap = Number(candidate.metrics.marketCapUsd || candidate.metrics.graduatedMarketCapUsd || 0) || null;
+  const rawEntryPrice = Number(candidate.metrics.priceUsd || 0) || null;
+  const rawEntryMcap = Number(candidate.metrics.marketCapUsd || candidate.metrics.graduatedMarketCapUsd || 0) || null;
+  const slippagePct = numSetting('dry_run_slippage_pct', 1.0);
+  const slippageFactor = rawEntryMcap != null ? (1 + slippagePct / 100) : 1;
+  const entryPrice = rawEntryPrice != null ? rawEntryPrice * slippageFactor : null;
+  const entryMcap = rawEntryMcap != null ? rawEntryMcap * slippageFactor : null;
   const tp = Number(decision.suggested_tp_percent || strat.tp_percent || numSetting('default_tp_percent', 50));
   const sl = Number(decision.suggested_sl_percent || strat.sl_percent || numSetting('default_sl_percent', -25));
+  const earlyTokenSl = earlyTokenSlSnapshot(candidate, strat, sl);
+  const effectiveSl = earlyTokenSl.effective_sl_percent;
   const trailingEnabled = (strat.trailing_enabled ?? boolSetting('default_trailing_enabled', true)) ? 1 : 0;
   const trailingPercent = strat.trailing_percent ?? numSetting('default_trailing_percent', 20);
+  const breakevenLockPercent = Number(strat.breakeven_lock_percent ?? numSetting('breakeven_lock_percent', 0)) || 0;
 
   return db.transaction(() => {
     const existing = db.prepare(`
@@ -46,8 +106,9 @@ export function createDryRunPosition(candidateId, candidate, decision, reason = 
       INSERT INTO dry_run_positions (
         candidate_id, mint, symbol, status, opened_at_ms, size_sol, entry_price, entry_mcap,
         token_amount_est, high_water_price, high_water_mcap, tp_percent, sl_percent,
-        trailing_enabled, trailing_percent, trailing_armed, llm_decision_id, strategy_id, snapshot_json
-      ) VALUES (?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
+        effective_sl_percent, trailing_enabled, trailing_percent, trailing_armed, breakeven_lock_percent,
+        llm_decision_id, strategy_id, snapshot_json
+      ) VALUES (?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
     `).run(
       candidateId,
       candidate.token.mint,
@@ -61,17 +122,35 @@ export function createDryRunPosition(candidateId, candidate, decision, reason = 
       entryMcap,
       tp,
       sl,
+      effectiveSl,
       trailingEnabled,
       trailingPercent,
+      breakevenLockPercent,
       decision.id || null,
       strat.id,
-      json({ candidate, decision, reason, strategy: strat.id }),
+      json({
+        candidate,
+        decision,
+        reason,
+        strategy: strat.id,
+        mcapSample: candidate.mcapSample || null,
+        base_sl_percent: sl,
+        effective_sl_percent: effectiveSl,
+        early_token_sl: earlyTokenSl,
+      }),
     );
     const positionId = Number(result.lastInsertRowid);
     db.prepare(`
       INSERT INTO dry_run_trades (position_id, mint, side, at_ms, price, mcap, size_sol, token_amount_est, reason, payload_json)
       VALUES (?, ?, 'buy', ?, ?, ?, ?, ?, ?, ?)
-    `).run(positionId, candidate.token.mint, now(), entryPrice, entryMcap, sizeSol, null, reason, json({ candidateId, decision }));
+    `).run(positionId, candidate.token.mint, now(), entryPrice, entryMcap, sizeSol, null, reason, json({
+      candidateId,
+      decision,
+      mcapSample: candidate.mcapSample || null,
+      base_sl_percent: sl,
+      effective_sl_percent: effectiveSl,
+      early_token_sl: earlyTokenSl,
+    }));
     db.prepare(`
       INSERT INTO tp_sl_rules (position_id, tp_percent, sl_percent, trailing_enabled, trailing_percent, updated_at_ms)
       VALUES (?, ?, ?, ?, ?, ?)
@@ -87,12 +166,15 @@ export function createLivePosition(candidateId, candidate, decision, swap, reaso
   const entryMcap = Number(candidate.metrics.marketCapUsd || candidate.metrics.graduatedMarketCapUsd || 0) || null;
   const tp = Number(decision.suggested_tp_percent || strat.tp_percent || numSetting('default_tp_percent', 50));
   const sl = Number(decision.suggested_sl_percent || strat.sl_percent || numSetting('default_sl_percent', -25));
+  const earlyTokenSl = earlyTokenSlSnapshot(candidate, strat, sl);
+  const effectiveSl = sl;
   const trailingEnabled = (strat.trailing_enabled ?? boolSetting('default_trailing_enabled', true)) ? 1 : 0;
   const trailingPercent = strat.trailing_percent ?? numSetting('default_trailing_percent', 20);
+  const breakevenLockPercent = Number(strat.breakeven_lock_percent ?? numSetting('breakeven_lock_percent', 0)) || 0;
 
   return db.transaction(() => {
     const existing = db.prepare(`
-      SELECT id FROM dry_run_positions WHERE mint = ? AND status = 'open' LIMIT 1
+      SELECT id FROM dry_run_positions WHERE mint = ? AND status IN ('open', 'partial_exit') LIMIT 1
     `).get(candidate.token.mint);
     if (existing) return existing.id;
 
@@ -100,9 +182,9 @@ export function createLivePosition(candidateId, candidate, decision, swap, reaso
       INSERT INTO dry_run_positions (
         candidate_id, mint, symbol, status, opened_at_ms, size_sol, entry_price, entry_mcap,
         token_amount_est, high_water_price, high_water_mcap, tp_percent, sl_percent,
-        trailing_enabled, trailing_percent, trailing_armed, llm_decision_id,
+        effective_sl_percent, trailing_enabled, trailing_percent, trailing_armed, breakeven_lock_percent, llm_decision_id,
         execution_mode, entry_signature, token_amount_raw, strategy_id, snapshot_json
-      ) VALUES (?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 'live', ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, 'live', ?, ?, ?, ?)
     `).run(
       candidateId,
       candidate.token.mint,
@@ -116,19 +198,41 @@ export function createLivePosition(candidateId, candidate, decision, swap, reaso
       entryMcap,
       tp,
       sl,
+      effectiveSl,
       trailingEnabled,
       trailingPercent,
+      breakevenLockPercent,
       decision.id || null,
       swap.signature,
       swap.outputAmount || null,
       strat.id,
-      json({ candidate, decision, reason, swap, strategy: strat.id }),
+      json({
+        candidate,
+        decision,
+        reason,
+        swap,
+        strategy: strat.id,
+        mcapSample: candidate.mcapSample || null,
+        base_sl_percent: sl,
+        effective_sl_percent: effectiveSl,
+        live_early_token_sl_shadow_only: true,
+        early_token_sl: earlyTokenSl,
+      }),
     );
     const positionId = Number(result.lastInsertRowid);
     db.prepare(`
       INSERT INTO dry_run_trades (position_id, mint, side, at_ms, price, mcap, size_sol, token_amount_est, reason, payload_json)
       VALUES (?, ?, 'buy', ?, ?, ?, ?, ?, ?, ?)
-    `).run(positionId, candidate.token.mint, now(), entryPrice, entryMcap, sizeSol, null, reason, json({ candidateId, decision, swap }));
+    `).run(positionId, candidate.token.mint, now(), entryPrice, entryMcap, sizeSol, null, reason, json({
+      candidateId,
+      decision,
+      swap,
+      mcapSample: candidate.mcapSample || null,
+      base_sl_percent: sl,
+      effective_sl_percent: effectiveSl,
+      live_early_token_sl_shadow_only: true,
+      early_token_sl: earlyTokenSl,
+    }));
     db.prepare(`
       INSERT INTO tp_sl_rules (position_id, tp_percent, sl_percent, trailing_enabled, trailing_percent, updated_at_ms)
       VALUES (?, ?, ?, ?, ?, ?)

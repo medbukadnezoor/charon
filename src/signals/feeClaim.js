@@ -1,11 +1,12 @@
 import WebSocket from 'ws';
-import { PUMP_PROGRAM, PUMP_AMM, DISC_DIST_FEES, SOLANA_WS_URL } from '../config.js';
+import { PUMP_PROGRAM, PUMP_AMM, DISC_DIST_FEES } from '../config.js';
 import { now, pruneSeen, lamToSol, discMatch, parseDistFees } from '../utils.js';
 import { numSetting, boolSetting } from '../db/settings.js';
 import { storeSignalEvent } from './trending.js';
 import { graduated } from './graduated.js';
 import { trending } from './trending.js';
 import { buildFeeSnapshot } from '../pipeline/candidateBuilder.js';
+import { classifyRpcFailure, wsEndpointCandidatesForContext } from '../rpc/router.js';
 
 export const seenFeeClaims = new Map();
 let candidateHandler = null;
@@ -64,13 +65,22 @@ async function processLog(logInfo) {
 }
 
 export function startWebsocket() {
-  const wsUrl = SOLANA_WS_URL;
+  const endpoints = wsEndpointCandidatesForContext('pump_logs');
   let ws;
   let pingTimer;
+  let endpointIndex = 0;
+  let lastError = null;
+
   function connect() {
-    ws = new WebSocket(wsUrl);
+    const endpoint = endpoints[endpointIndex] || endpoints[0];
+    if (!endpoint?.url) {
+      console.log(`[ws] RPC endpoint unavailable endpoint=${endpoint?.label || 'general'} context=pump_logs`);
+      return;
+    }
+    ws = new WebSocket(endpoint.url);
     ws.on('open', () => {
-      console.log('[ws] connected');
+      lastError = null;
+      console.log(`[ws] connected endpoint=${endpoint.label}`);
       for (const [id, program] of [[1, PUMP_PROGRAM], [2, PUMP_AMM]]) {
         ws.send(JSON.stringify({
           jsonrpc: '2.0',
@@ -97,10 +107,17 @@ export function startWebsocket() {
     });
     ws.on('close', () => {
       clearInterval(pingTimer);
-      console.log('[ws] closed, reconnecting in 5s');
+      const failure = lastError ? classifyRpcFailure(lastError) : null;
+      const canFallback = endpoint.label === 'general' && endpoints[1] && failure?.retryable;
+      if (canFallback) endpointIndex = 1;
+      else endpointIndex = 0;
+      console.log(`[ws] closed endpoint=${endpoint.label}, reconnecting in 5s${canFallback ? ' via pump_fallback' : ''}`);
       setTimeout(connect, 5000);
     });
-    ws.on('error', error => console.log(`[ws] ${error.message}`));
+    ws.on('error', error => {
+      lastError = error;
+      console.log(`[ws] endpoint=${endpoint.label} ${error.message}`);
+    });
   }
   connect();
 }

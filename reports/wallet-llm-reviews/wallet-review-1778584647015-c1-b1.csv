@@ -1,0 +1,2 @@
+batch_id,wallet_address,llm_verdict,llm_confidence,recommended_action,llm_reasoning,reviewed_at_iso,llm_model,base_url
+wallet-review-1778584647015-c1-b1,1TXsKzewQzFb8MYidNCmvmPWTma1DWyC6fpvd5gQa7W,insufficient_data,30,watch,"The wallet has only two sparse sightings from holder endpoints with unavailable trade amounts, making it impossible to confirm trading activity or strategy.",2026-05-12T11:17:31.341Z,mimo-v2.5-pro,https://api.xiaomimimo.com/v1

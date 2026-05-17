@@ -7,8 +7,8 @@ import {
   JUPITER_SWAP_BASE_URL,
   JSON_HEADERS,
   SOLANA_PRIVATE_KEY,
-  SOLANA_RPC_URL,
 } from './config.js';
+import { rpcEndpointForContext } from './rpc/router.js';
 
 let liveWallet = null;
 let solanaConnection = null;
@@ -24,7 +24,7 @@ export function initLiveExecution() {
   if (!SOLANA_PRIVATE_KEY) return;
   try {
     liveWallet = parseKeypair(SOLANA_PRIVATE_KEY);
-    solanaConnection = new Connection(SOLANA_RPC_URL, 'confirmed');
+    solanaConnection = new Connection(rpcEndpointForContext('execution_rpc'), 'confirmed');
     console.log(`[live] wallet loaded ${liveWallet.publicKey.toBase58()}`);
   } catch (err) {
     liveWallet = null;
@@ -59,6 +59,10 @@ export function requireLiveExecution() {
 
 export async function liveWalletBalanceLamports() {
   requireLiveExecution();
+  const walletBalanceRpc = rpcEndpointForContext('wallet_balance');
+  if (walletBalanceRpc && solanaConnection.rpcEndpoint !== walletBalanceRpc) {
+    solanaConnection = new Connection(walletBalanceRpc, 'confirmed');
+  }
   return solanaConnection.getBalance(liveWallet.publicKey, 'confirmed');
 }
 

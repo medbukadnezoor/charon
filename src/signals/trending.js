@@ -3,7 +3,7 @@ import { JUPITER_API_KEY, JSON_HEADERS, TRENDING_LOOKBACK_MS } from '../config.j
 import { now, json } from '../utils.js';
 import { numSetting, boolSetting, setting } from '../db/settings.js';
 import { db } from '../db/connection.js';
-import { gmgnBackoffActive, setGmgnBackoff, gmgnFetch, normalizedTrendingRows } from '../enrichment/gmgn.js';
+import { gmgnBackoffActive, setGmgnBackoff, gmgnFetch, normalizedTrendingRows, normalizeGmgnTrendingRow } from '../enrichment/gmgn.js';
 import { normalizeJupiterTrendingRow } from '../enrichment/jupiter.js';
 
 export const trending = new Map();
@@ -23,8 +23,8 @@ export function storeSignalEvent(mint, kind, source, payload) {
 export function trendingSignalPass(row) {
   const volume = Number(row?.volume ?? 0);
   const swaps = Number(row?.swaps ?? 0);
-  const rugRatio = Number(row?.rug_ratio ?? 0);
-  const bundlerRate = Number(row?.bundler_rate ?? 0);
+  const rugRatio = row?.rug_ratio == null ? null : Number(row.rug_ratio);
+  const bundlerRate = row?.bundler_rate == null ? null : Number(row.bundler_rate);
   const minVolume = numSetting('trending_min_volume_usd', 0);
   const minSwaps = numSetting('trending_min_swaps', 0);
   const maxRugRatio = numSetting('trending_max_rug_ratio', 0.3);
@@ -67,12 +67,8 @@ export async function fetchGmgnTrendingRows(interval, limit) {
       platforms: ['Pump.fun', 'meteora_virtual_curve', 'pool_pump_amm'],
     },
   });
-  return normalizedTrendingRows(payload).map((row, index) => ({
-    ...row,
-    interval,
-    rank: index + 1,
-    source: 'gmgn_market_rank',
-  }));
+  const providerSideFilters = ['renounced', 'frozen', 'not_wash_trading'];
+  return normalizedTrendingRows(payload).map((row, index) => normalizeGmgnTrendingRow(row, interval, index + 1, providerSideFilters));
 }
 
 export async function fetchGmgnTrending() {

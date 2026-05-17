@@ -2,6 +2,37 @@ import { db } from './connection.js';
 import { now, safeJson, json } from '../utils.js';
 import { numSetting } from './settings.js';
 
+const TIER_ORDER_LOG = { A: 0, B: 1, C: 2, universe: 3 };
+
+function compactWalletExposureForLog(exposure = {}) {
+  if (!exposure) return null;
+  const evidence = exposure.evidence;
+  const matched = evidence?.wallets ?? [];
+
+  // Compact log format per wallet: shortAddr:tier:primaryTag:freshnessFlag
+  const walletLines = matched
+    .slice(0, 10)
+    .sort((a, b) => (TIER_ORDER_LOG[a.tier] ?? 99) - (TIER_ORDER_LOG[b.tier] ?? 99))
+    .map(w => {
+      const tag = w.tags?.[0] ?? 'unknown';
+      const freshFlag = w.gmgn?.fresh ? 'gmgn_fresh'
+        : w.jup?.fresh ? 'jup_fresh'
+        : 'stale';
+      return `${w.addr}:${w.tier}:${tag}:${freshFlag}`;
+    });
+
+  return {
+    holderCount: exposure.holderCount ?? 0,
+    checked: exposure.checked ?? 0,
+    walletEvidence: {
+      matched: exposure.holderCount ?? 0,
+      strongCount: evidence?.summary?.strongCount ?? 0,
+      kolCount: evidence?.summary?.kolCount ?? 0,
+      wallets: walletLines,
+    },
+  };
+}
+
 export function storeDecision(candidateId, candidate, decision) {
   const result = db.prepare(`
     INSERT INTO llm_decisions (candidate_id, mint, created_at_ms, verdict, confidence, reason, risks_json, raw_json)
@@ -21,9 +52,14 @@ export function storeDecision(candidateId, candidate, decision) {
 
 export function storeBatchDecision(triggerCandidateId, rows, batchDecision) {
   const selectedRow = batchDecision.selected_row;
+  const audit = batchDecision.audit || {};
   const result = db.prepare(`
-    INSERT INTO llm_batches (created_at_ms, trigger_candidate_id, selected_candidate_id, selected_mint, verdict, confidence, reason, risks_json, raw_json, candidate_ids_json)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO llm_batches (
+      created_at_ms, trigger_candidate_id, selected_candidate_id, selected_mint,
+      verdict, confidence, reason, risks_json, raw_json, candidate_ids_json,
+      conclusion_count, critical_count, payload_size_bytes, trim_stages, candidate_count, rpc_enrichment_used
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     now(),
     triggerCandidateId,
@@ -35,6 +71,12 @@ export function storeBatchDecision(triggerCandidateId, rows, batchDecision) {
     json(batchDecision.risks || []),
     json(batchDecision),
     json(rows.map(row => row.id)),
+    audit.conclusion_count ?? null,
+    audit.critical_count ?? null,
+    audit.payload_size_bytes ?? null,
+    Array.isArray(audit.trim_stages) ? audit.trim_stages.join(',') : (audit.trim_stages ?? null),
+    audit.candidate_count ?? null,
+    audit.rpc_enrichment_used ? 1 : 0,
   );
   return Number(result.lastInsertRowid);
 }
@@ -104,7 +146,8 @@ export function logDecisionEvent({
           top20: c.holders?.top20,
         },
         chart: c.chart,
-        savedWalletExposure: c.savedWalletExposure,
+        savedWalletExposure: compactWalletExposureForLog(c.savedWalletExposure),
+        kolDumpRisk: c.kolDumpRisk,
         twitterNarrative: c.twitterNarrative,
         filters: c.filters,
         createdAtMs: c.createdAtMs,
@@ -113,4 +156,30 @@ export function logDecisionEvent({
     json(execution),
     strategyId,
   );
+}
+
+export function logSameMintBlocked({
+  batchId = null,
+  triggerCandidateId = null,
+  selectedRow = null,
+  rows = [],
+  decision = {},
+  mode = 'live',
+  reason,
+  guardrails = {},
+}) {
+  return logDecisionEvent({
+    batchId,
+    triggerCandidateId,
+    selectedRow,
+    rows,
+    decision: {
+      ...decision,
+      reason: reason || decision.reason || 'same_mint_blocked',
+    },
+    mode,
+    action: 'same_mint_blocked',
+    guardrails,
+    execution: { blocked: true, reason },
+  });
 }

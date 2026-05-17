@@ -60,6 +60,25 @@ export function initDb() {
       raw_json TEXT NOT NULL,
       candidate_ids_json TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS llm_usage_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      created_at_ms INTEGER NOT NULL,
+      status TEXT NOT NULL,
+      provider TEXT,
+      model TEXT,
+      batch_id INTEGER,
+      trigger_candidate_id INTEGER,
+      candidate_count INTEGER,
+      request_bytes INTEGER,
+      response_bytes INTEGER,
+      latency_ms INTEGER,
+      prompt_tokens INTEGER,
+      completion_tokens INTEGER,
+      total_tokens INTEGER,
+      token_estimate_method TEXT,
+      estimated_cost_usd REAL,
+      error_class TEXT
+    );
     CREATE TABLE IF NOT EXISTS dry_run_positions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       candidate_id INTEGER,
@@ -76,9 +95,13 @@ export function initDb() {
       high_water_mcap REAL,
       tp_percent REAL NOT NULL,
       sl_percent REAL NOT NULL,
+      effective_sl_percent REAL,
       trailing_enabled INTEGER NOT NULL,
       trailing_percent REAL NOT NULL,
       trailing_armed INTEGER NOT NULL DEFAULT 0,
+      breakeven_armed INTEGER NOT NULL DEFAULT 0,
+      breakeven_armed_at_ms INTEGER,
+      breakeven_lock_percent REAL NOT NULL DEFAULT 0,
       exit_price REAL,
       exit_mcap REAL,
       exit_reason TEXT,
@@ -153,6 +176,63 @@ export function initDb() {
       source TEXT NOT NULL,
       payload_json TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS screening_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      at_ms INTEGER NOT NULL,
+      mint TEXT NOT NULL,
+      strategy_id TEXT,
+      stage TEXT NOT NULL,
+      action TEXT NOT NULL,
+      reason_code TEXT,
+      reason_text TEXT,
+      signal_key TEXT,
+      candidate_id INTEGER,
+      batch_id INTEGER,
+      execution_mode TEXT,
+      source_count INTEGER,
+      sources_json TEXT NOT NULL,
+      route TEXT,
+      age_ms INTEGER,
+      age_threshold_ms INTEGER,
+      has_fee_claim INTEGER,
+      fee_claim_sol REAL,
+      market_cap_usd REAL,
+      holder_count INTEGER,
+      max_holder_percent REAL,
+      saved_wallet_holders INTEGER,
+      gmgn_total_fee_sol REAL,
+      graduated_volume_usd REAL,
+      trending_source TEXT,
+      trending_volume_usd REAL,
+      trending_swaps INTEGER,
+      trending_rug_ratio REAL,
+      trending_bundler_rate REAL,
+      trending_is_wash_trading INTEGER,
+      provider_fields_json TEXT NOT NULL,
+      config_snapshot_json TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS mint_blacklist (
+      mint TEXT PRIMARY KEY,
+      reason TEXT,
+      source TEXT NOT NULL DEFAULT 'manual',
+      created_at_ms INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS deployer_observations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      mint TEXT NOT NULL,
+      deployer TEXT,
+      creator TEXT,
+      exit_reason TEXT NOT NULL,
+      loss_severity TEXT NOT NULL,
+      pnl_percent REAL,
+      pnl_sol REAL,
+      rug_ratio REAL,
+      top_holder_percent REAL,
+      top20_holder_percent REAL,
+      bundler_rate REAL,
+      context_json TEXT NOT NULL,
+      observed_at_ms INTEGER NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS learning_runs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       created_at_ms INTEGER NOT NULL,
@@ -197,8 +277,40 @@ export function initDb() {
     CREATE INDEX IF NOT EXISTS idx_trade_intents_status ON trade_intents(status);
     CREATE INDEX IF NOT EXISTS idx_decision_logs_mint ON decision_logs(selected_mint);
     CREATE INDEX IF NOT EXISTS idx_signal_events_mint ON signal_events(mint);
+    CREATE INDEX IF NOT EXISTS idx_screening_events_at ON screening_events(at_ms);
+    CREATE INDEX IF NOT EXISTS idx_screening_events_mint_at ON screening_events(mint, at_ms);
+    CREATE INDEX IF NOT EXISTS idx_screening_events_stage_reason ON screening_events(stage, reason_code, at_ms);
+    CREATE INDEX IF NOT EXISTS idx_screening_events_candidate ON screening_events(candidate_id);
+    CREATE INDEX IF NOT EXISTS idx_deployer_observations_mint ON deployer_observations(mint, observed_at_ms);
+    CREATE INDEX IF NOT EXISTS idx_deployer_observations_deployer ON deployer_observations(deployer, observed_at_ms);
     CREATE INDEX IF NOT EXISTS idx_learning_lessons_status ON learning_lessons(status, created_at_ms);
+    CREATE INDEX IF NOT EXISTS idx_llm_usage_events_created ON llm_usage_events(created_at_ms);
+    CREATE INDEX IF NOT EXISTS idx_llm_usage_events_status ON llm_usage_events(status, created_at_ms);
   `);
+  // WP-M5-1: extend saved_wallets with cached intelligence columns
+  ensureColumn('saved_wallets', 'tags_json', "TEXT DEFAULT '[]'");
+  ensureColumn('saved_wallets', 'tier', "TEXT DEFAULT 'universe'");
+  ensureColumn('saved_wallets', 'quality_score', 'REAL');
+  ensureColumn('saved_wallets', 'source', "TEXT DEFAULT 'manual'");
+  ensureColumn('saved_wallets', 'gmgn_winrate', 'REAL');
+  ensureColumn('saved_wallets', 'gmgn_realized_pnl', 'REAL');
+  ensureColumn('saved_wallets', 'gmgn_tags_json', 'TEXT');
+  ensureColumn('saved_wallets', 'gmgn_twitter', 'TEXT');
+  ensureColumn('saved_wallets', 'gmgn_snapshot_at', 'INTEGER');
+  ensureColumn('saved_wallets', 'okx_winrate', 'REAL');
+  ensureColumn('saved_wallets', 'okx_realized_pnl', 'REAL');
+  ensureColumn('saved_wallets', 'okx_preferred_mcap', 'TEXT');
+  ensureColumn('saved_wallets', 'okx_snapshot_at', 'INTEGER');
+  ensureColumn('saved_wallets', 'jup_total_pnl', 'REAL');
+  ensureColumn('saved_wallets', 'jup_winrate', 'REAL');
+  ensureColumn('saved_wallets', 'jup_total_trades', 'INTEGER');
+  ensureColumn('saved_wallets', 'jup_snapshot_at', 'INTEGER');
+  ensureColumn('saved_wallets', 'owner_label', 'TEXT');
+  ensureColumn('saved_wallets', 'owner_notes', 'TEXT');
+  ensureColumn('saved_wallets', 'last_synced_at', 'INTEGER');
+  ensureColumn('saved_wallets', 'harvester_last_seen', 'INTEGER');
+  db.exec("UPDATE saved_wallets SET source = 'manual' WHERE source IS NULL");
+
   ensureColumn('candidates', 'signal_key', 'TEXT');
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_candidates_signal_key ON candidates(signal_key) WHERE signal_key IS NOT NULL');
   ensureColumn('dry_run_positions', 'execution_mode', "TEXT DEFAULT 'dry_run'");
@@ -207,14 +319,33 @@ export function initDb() {
   ensureColumn('dry_run_positions', 'token_amount_raw', 'TEXT');
   ensureColumn('dry_run_positions', 'strategy_id', "TEXT DEFAULT 'sniper'");
   ensureColumn('dry_run_positions', 'partial_tp_done', 'INTEGER DEFAULT 0');
+  ensureColumn('dry_run_positions', 'breakeven_armed', 'INTEGER DEFAULT 0');
+  ensureColumn('dry_run_positions', 'breakeven_armed_at_ms', 'INTEGER');
+  ensureColumn('dry_run_positions', 'breakeven_lock_percent', 'REAL DEFAULT 0');
+  ensureColumn('dry_run_positions', 'effective_sl_percent', 'REAL');
   ensureColumn('decision_logs', 'strategy_id', 'TEXT');
+  ensureColumn('llm_batches', 'conclusion_count', 'INTEGER');
+  ensureColumn('llm_batches', 'critical_count', 'INTEGER');
+  ensureColumn('llm_batches', 'payload_size_bytes', 'INTEGER');
+  ensureColumn('llm_batches', 'trim_stages', 'TEXT');
+  ensureColumn('llm_batches', 'candidate_count', 'INTEGER');
+  ensureColumn('llm_batches', 'rpc_enrichment_used', 'INTEGER DEFAULT 0');
 
   const defaults = {
     agent_enabled: 'true',
     trading_mode: process.env.TRADING_MODE || 'dry_run',
     llm_candidate_pick_count: process.env.LLM_CANDIDATE_PICK_COUNT || '10',
     llm_candidate_max_age_ms: process.env.LLM_CANDIDATE_MAX_AGE_MS || String(10 * 60 * 1000),
+    llm_timeout_ms: process.env.LLM_TIMEOUT_MS || String(90 * 1000),
     llm_min_confidence: '75',
+    llm_payload_budget_kb: '40',
+    llm_max_conclusions_per_candidate: '8',
+    llm_rpc_enrichment_enabled: 'true',
+    llm_payload_debug_log: 'false',
+    llm_intelligence_enabled: 'true',
+    llm_cost_tracking_enabled: 'false',
+    llm_input_cost_per_1m_tokens: '0',
+    llm_output_cost_per_1m_tokens: '0',
     max_open_positions: process.env.MAX_OPEN_POSITIONS || '3',
     dry_run_buy_sol: '0.1',
     default_tp_percent: '50',
@@ -240,6 +371,14 @@ export function initDb() {
     trending_min_swaps: process.env.TRENDING_MIN_SWAPS || '0',
     trending_max_rug_ratio: process.env.TRENDING_MAX_RUG_RATIO || '0.3',
     trending_max_bundler_rate: process.env.TRENDING_MAX_BUNDLER_RATE || '0.5',
+    dry_run_slippage_pct: '1.0',
+    dry_run_fee_pct: '0.2',
+    live_sell_dust_threshold_raw: '1000',
+    max_hold_if_no_tp_ms: '0',
+    early_token_age_ms: '0',
+    early_token_sl_percent: '',
+    breakeven_after_profit_percent: '0',
+    breakeven_lock_percent: '0',
   };
   const insert = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
   for (const [key, value] of Object.entries(defaults)) insert.run(key, value);
@@ -276,6 +415,11 @@ export function initDb() {
     partial_tp_at_percent: 0,
     partial_tp_sell_percent: 0,
     max_hold_ms: 0,
+    max_hold_if_no_tp_ms: 0,
+    early_token_age_ms: 0,
+    early_token_sl_percent: null,
+    breakeven_after_profit_percent: 0,
+    breakeven_lock_percent: 0,
     use_llm: true,
     llm_min_confidence: 50,
   }), ts);
@@ -308,6 +452,11 @@ export function initDb() {
     partial_tp_at_percent: 0,
     partial_tp_sell_percent: 0,
     max_hold_ms: 0,
+    max_hold_if_no_tp_ms: 0,
+    early_token_age_ms: 0,
+    early_token_sl_percent: null,
+    breakeven_after_profit_percent: 0,
+    breakeven_lock_percent: 0,
     use_llm: true,
     llm_min_confidence: 60,
   }), ts);
@@ -340,6 +489,11 @@ export function initDb() {
     partial_tp_at_percent: 100,
     partial_tp_sell_percent: 50,
     max_hold_ms: 0,
+    max_hold_if_no_tp_ms: 0,
+    early_token_age_ms: 0,
+    early_token_sl_percent: null,
+    breakeven_after_profit_percent: 0,
+    breakeven_lock_percent: 0,
     use_llm: true,
     llm_min_confidence: 70,
   }), ts);
@@ -372,6 +526,11 @@ export function initDb() {
     partial_tp_at_percent: 0,
     partial_tp_sell_percent: 0,
     max_hold_ms: 0,
+    max_hold_if_no_tp_ms: 0,
+    early_token_age_ms: 0,
+    early_token_sl_percent: null,
+    breakeven_after_profit_percent: 0,
+    breakeven_lock_percent: 0,
     use_llm: false,
     llm_min_confidence: 0,
   }), ts);

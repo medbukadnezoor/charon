@@ -1,0 +1,89 @@
+{
+  "created_at": "2026-05-13T02:55:35.927Z",
+  "source_db_path": "/opt/trading-data/charon.sqlite",
+  "temp_db_path": "/tmp/charon-strategy-shadow-1778640935802.sqlite",
+  "harvester_db_path": "/opt/trading-data/harvester.db",
+  "provider_stubs": true,
+  "saved_wallet_count": 58,
+  "kol_like_saved_wallet_count": 6,
+  "selected_holder_count": 8,
+  "results": [
+    {
+      "strategy_id": "degen",
+      "strategy_name": "Degen",
+      "enabled_before_shadow": false,
+      "entry_mode": "immediate",
+      "use_llm": false,
+      "position_size_sol": 0.05,
+      "tp_percent": 30,
+      "sl_percent": -15,
+      "max_open_positions": 5,
+      "passed": true,
+      "failures": [],
+      "saved_wallet_holders": 8,
+      "kol_holders": 6,
+      "market_cap_usd": 100000,
+      "holder_count": 100,
+      "distance_from_ath_percent": -50
+    },
+    {
+      "strategy_id": "dip_buy",
+      "strategy_name": "Dip Buy",
+      "enabled_before_shadow": false,
+      "entry_mode": "wait_for_dip",
+      "use_llm": true,
+      "position_size_sol": 0.05,
+      "tp_percent": 30,
+      "sl_percent": -20,
+      "max_open_positions": 3,
+      "passed": true,
+      "failures": [],
+      "saved_wallet_holders": 8,
+      "kol_holders": 6,
+      "market_cap_usd": 100000,
+      "holder_count": 100,
+      "distance_from_ath_percent": -50
+    },
+    {
+      "strategy_id": "smart_money",
+      "strategy_name": "Smart Money",
+      "enabled_before_shadow": false,
+      "entry_mode": "immediate",
+      "use_llm": true,
+      "position_size_sol": 0.1,
+      "tp_percent": 100,
+      "sl_percent": -25,
+      "max_open_positions": 3,
+      "passed": false,
+      "failures": [
+        "holders: 100 < 1000"
+      ],
+      "saved_wallet_holders": 8,
+      "kol_holders": 6,
+      "market_cap_usd": 100000,
+      "holder_count": 100,
+      "distance_from_ath_percent": -50
+    },
+    {
+      "strategy_id": "sniper",
+      "strategy_name": "Sniper",
+      "enabled_before_shadow": true,
+      "entry_mode": "immediate",
+      "use_llm": true,
+      "position_size_sol": 0.1,
+      "tp_percent": 50,
+      "sl_percent": -25,
+      "max_open_positions": 3,
+      "passed": false,
+      "failures": [
+        "fee claim: missing (required by strategy)",
+        "GMGN total fees: 0 < 10"
+      ],
+      "saved_wallet_holders": 8,
+      "kol_holders": 6,
+      "market_cap_usd": 100000,
+      "holder_count": 100,
+      "distance_from_ath_percent": -50
+    }
+  ]
+}
