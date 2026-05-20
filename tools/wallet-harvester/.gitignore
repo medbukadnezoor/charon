@@ -1,0 +1,8 @@
+node_modules/
+dist/
+data/*.db
+data/*.db-wal
+data/*.db-shm
+reports/*.json
+reports/*.md
+reports/*.csv

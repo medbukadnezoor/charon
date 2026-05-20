@@ -1,5 +1,5 @@
 /**
- * Bulk wallet importer for Charon — reads from moonbags wallet-review CSV.
+ * Bulk wallet importer for Charon — reads from wallet-harvester CSV.
  * Usage: node scripts/import_wallets.js
  *
  * Reads all 720 wallets from the latest wallet-review CSV and bulk-inserts
@@ -17,7 +17,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '..');
 
 const CSV_PATH = path.resolve(
-  process.env.WALLET_REVIEW_CSV || path.join(REPO_ROOT, '../moonbags/tools/wallet-harvester/reports/wallet-review-2026-05-11T05-34-15-371Z.csv')
+  process.env.WALLET_REVIEW_CSV || path.join(REPO_ROOT, 'tools/wallet-harvester/reports/wallet-review-2026-05-11T05-34-15-371Z.csv')
 );
 const CHARON_DB = path.resolve(__dirname, '../charon.sqlite');
 

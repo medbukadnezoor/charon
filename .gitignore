@@ -10,4 +10,21 @@ node_modules/
 .DS_Store
 npm-debug.log*
 
+# Agent/IDE scaffolding (per-machine, not project config)
+.codex/
+.factory/
+.gemini/
+.kiro/
+.opencode/
+.specify/
+.workflow/
+.claude/agents/
+
+# Wallet-harvester artifacts
+tools/wallet-harvester/node_modules/
+tools/wallet-harvester/data/*.db
+tools/wallet-harvester/data/*.db-*
+tools/wallet-harvester/reports/*.json
+tools/wallet-harvester/reports/*.csv
+
 ARCHITECTURE.md

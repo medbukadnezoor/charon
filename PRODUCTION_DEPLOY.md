@@ -73,6 +73,13 @@ ssh moonbags 'cd /home/opc/charon && git rev-parse --abbrev-ref HEAD && git rev-
 ssh moonbags 'cd /home/opc/charon && npm run check'
 ```
 
+If the pulled change modifies `tools/wallet-harvester/`, install that nested
+package after the checkout is reconciled:
+
+```bash
+ssh moonbags 'cd /home/opc/charon/tools/wallet-harvester && npm ci'
+```
+
 ## Position-Safe Restart
 
 Always use the safe restart script so Charon does not restart while positions

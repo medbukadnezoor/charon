@@ -61,7 +61,7 @@ WP-M5 and WP-M6 wallet pipeline fully landed and live on VPS (moonbags, 140.245.
 | `/opt/trading-data/harvester.db` | Harvester DB |
 | `/opt/trading-data/logs/auto-sync-YYYY-MM-DD.log` | Auto-sync pipeline logs |
 | `~/charon/` | Charon repo |
-| `~/moonbags/` | MoonBags repo (harvester source) |
+| `~/moonbags/` | MoonBags repo (legacy upstream context; harvester source now lives under `~/charon/tools/wallet-harvester/`) |
 
 ### PM2 processes
 

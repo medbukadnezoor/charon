@@ -1,0 +1,51 @@
+{
+  "name": "wallet-harvester",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "harvest:discover": "tsx src/harvester.ts --discover-only",
+    "harvest:run": "tsx src/harvester.ts",
+    "harvest:run:gmgn": "HARVESTER_ENABLE_FULL_RUN=true HARVESTER_ENABLE_OKX=false tsx src/harvester.ts",
+    "harvest:run:okx": "HARVESTER_ENABLE_FULL_RUN=true HARVESTER_ENABLE_OKX=true tsx src/harvester.ts",
+    "harvest:status": "tsx src/harvester.ts --status",
+    "enrich:profiles": "tsx src/enrichWalletProfile.ts",
+    "harvest:backfill:gmgn-labels": "tsx src/backfillGmgnLabels.ts",
+    "harvest:export:wallets": "tsx src/exportWallets.ts",
+    "harvest:export:seed-list": "tsx src/exportSeedList.ts",
+    "harvest:export:seed-list-check": "tsx src/exportSeedListCheck.ts",
+    "harvest:seed-shadow-report": "tsx src/seedShadowTagger.ts",
+    "harvest:seed-shadow-report-check": "tsx src/seedShadowTaggerCheck.ts",
+    "harvest:seed-shadow-candidates": "tsx src/seedShadowCandidateBackfill.ts",
+    "harvest:seed-shadow-candidates-check": "tsx src/seedShadowCandidateBackfillCheck.ts",
+    "harvest:seed-shadow-from-candidates": "SMART_WALLET_SHADOW_CANDIDATE_STREAM_PATH=../../lab/smart-wallet-seeds/smart_wallet_seed_shadow_candidates.jsonl tsx src/seedShadowTagger.ts",
+    "harvest:hypotheses": "tsx src/hypotheses.ts",
+    "harvest:report": "tsx src/report.ts",
+    "harvest:trades": "tsx src/tradeHistoryCollector.ts",
+    "harvest:trades-check": "tsx src/tradeHistoryCheck.ts",
+    "harvest:positions": "tsx src/positionBuilderCollector.ts",
+    "harvest:positions-check": "tsx src/positionBuilderCheck.ts",
+    "harvest:context": "tsx src/tradeContextCollector.ts",
+    "harvest:context-check": "tsx src/tradeContextCheck.ts",
+    "harvest:classify": "tsx src/strategyClassifierCollector.ts",
+    "harvest:classify-check": "tsx src/strategyClassifierCheck.ts",
+    "harvest:report:strategy": "tsx src/strategyReportCollector.ts",
+    "harvest:report:strategy-check": "tsx src/strategyReportCheck.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.0.0",
+    "dotenv": "^16.4.5",
+    "pino": "^9.5.0",
+    "pino-pretty": "^11.3.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.9",
+    "@types/node": "^20.14.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}

@@ -7,7 +7,7 @@ const KOL_TAG_RE = /(kol|renowned|influencer|caller|alpha)/i;
 const DEFAULT_CHARON_DB_PATH = path.resolve(process.cwd(), 'charon.sqlite');
 const DEFAULT_HARVESTER_DB_PATH = path.resolve(
   process.cwd(),
-  '../moonbags/tools/wallet-harvester/data/harvester.db',
+  'tools/wallet-harvester/data/harvester.db',
 );
 
 function argValue(name, fallback) {

@@ -40,12 +40,12 @@ Status: In progress
   as `data_quality`, and sparse `insufficient_data` reviews can use
   `recommended_action=watch` so formula-strong wallets are not demoted solely
   because local harvester context is thinner than GMGN's live wallet page.
-- 2026-05-12: Fixed the upstream MoonBags GMGN harvester extractor so future
+- 2026-05-12: Fixed the GMGN harvester extractor so future
   holder rows no longer convert missing `usd_value` fields into real
   `amount_usd=0` sightings. Added a zero-live-call extractor check. Existing
   historical rows still require repair or re-harvest before they stop carrying
   old fake-zero holder amounts.
-- 2026-05-12: Added and ran a dry-run-first MoonBags historical repair for
+- 2026-05-12: Added and ran a dry-run-first harvester historical repair for
   GMGN holder sightings. Backed up `data/harvester.db`, converted 1,000 old
   GMGN holder `amount_usd=0` rows to `NULL`, verified the repair count dropped
   to 0, regenerated the Charon priority export, and fixed an importer CLI
@@ -60,14 +60,14 @@ Status: In progress
   and target holder/trader/buy/sell/hold counts, KOL-like and negative-PnL
   profile flags, and preserves nullable numeric DB fields as `null` instead of
   converting them to `0`. Verified with targeted dry-run JSON only.
-- 2026-05-12: Implemented WP-M2-ENRICH-1 scaffold. MoonBags wallet-harvester
+- 2026-05-12: Implemented WP-M2-ENRICH-1 scaffold. The wallet-harvester
   now has dry-run-first `enrich:profiles` / `src/enrichWalletProfile.ts` for
   GMGN wallet-profile analytics and optional paced OKX portfolio fill-in,
   creating `wallet_profiles` and `owner_labels`. Charon reviewer/export now
   read those tables only from `harvester.db`; Charon makes no provider calls.
   No live provider enrichment was run in this slice.
 - 2026-05-12: Ran bounded live GMGN+OKX profile enrichment for the 10
-  owner-flagged wallets using MoonBags harvester keys, then reran targeted
+  owner-flagged wallets using harvester provider keys, then reran targeted
   MiMo review. Result: 10/10 owner-flagged wallets now have GMGN and OKX
   profile rows; the targeted LLM retest returned no `insufficient_data`
   verdicts. Latest priority export selected 69 A/B wallets and skipped 1 stale
@@ -85,8 +85,9 @@ Status: In progress
 
 ## Problem
 
-Charon uses `saved_wallets` as a smart-money filter. The wallet harvester
-(moonbags) collects wallets from GMGN trending/trenches/signals, but:
+Charon uses `saved_wallets` as a smart-money filter. The Charon-owned wallet
+harvester in `tools/wallet-harvester/` collects wallets from GMGN
+trending/trenches/signals, but:
 
 - Importing all 908+ raw wallets creates noise (many are inactive, bots, or
   trade outside Charon's target range)
@@ -207,7 +208,7 @@ labels remain available for import previews.
 
 **Depends on:** M1a (needs fresh PnL to score against).
 
-**Harvester data-quality note (2026-05-12):** Patched the MoonBags
+**Harvester data-quality note (2026-05-12):** Patched the
 `tools/wallet-harvester/src/extractors/gmgn.ts` extractor so missing GMGN
 holder amount fields remain `NULL` instead of being stored as `0`. Future
 harvests should no longer create fake zero-dollar holder sightings, but already
@@ -491,5 +492,5 @@ M0 (manual review)
 | Jupiter PnL API (`datapi.jup.ag/v1/pnl`) | M1a | 1 req/sec with 429 backoff |
 | Xiaomi MiMo `mimo-v2.5-pro` (`token-plan-sgp.xiaomimimo.com/v1`) | M2a/M2b | ~6 calls per 15-min cycle |
 | GMGN API | Harvester (existing) | Existing pacing in harvester |
-| Harvester DB (moonbags) | M1a, M1b, M2a | Read-only, no mutations |
+| Harvester DB (`tools/wallet-harvester`) | M1a, M1b, M2a | Read-only, no mutations |
 | Charon DB | M2a, M3a | Write to wallet_llm_reviews + saved_wallets |

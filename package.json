@@ -5,7 +5,13 @@
   "private": true,
   "scripts": {
     "start": "node index.js",
-    "check": "node --check index.js && node --check src/app.js && node --check src/config.js && node --check src/liveExecutor.js"
+    "check": "node --check index.js && node --check src/app.js && node --check src/config.js && node --check src/liveExecutor.js",
+    "harvest:run:gmgn": "npm run --prefix tools/wallet-harvester harvest:run:gmgn",
+    "harvest:run:okx": "npm run --prefix tools/wallet-harvester harvest:run:okx",
+    "harvest:status": "npm run --prefix tools/wallet-harvester harvest:status",
+    "harvest:discover": "npm run --prefix tools/wallet-harvester harvest:discover",
+    "enrich:profiles": "npm run --prefix tools/wallet-harvester enrich:profiles",
+    "harvest:export:wallets": "npm run --prefix tools/wallet-harvester harvest:export:wallets"
   },
   "dependencies": {
     "@solana/web3.js": "^1.98.4",

@@ -44,7 +44,7 @@ fs.copyFileSync(sourceDbPath, tempDbPath);
 process.env.DB_PATH = tempDbPath;
 process.env.HARVESTER_DB_PATH = path.resolve(argValue(
   'harvester-db',
-  process.env.HARVESTER_DB_PATH || path.join(REPO_ROOT, '../moonbags/tools/wallet-harvester/data/harvester.db'),
+  process.env.HARVESTER_DB_PATH || path.join(REPO_ROOT, 'tools/wallet-harvester/data/harvester.db'),
 ));
 
 const limit = argNumber('limit', 8);

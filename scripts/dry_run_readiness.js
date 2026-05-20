@@ -88,7 +88,7 @@ function activeStrategy(db) {
 const charonDbPath = path.resolve(argValue('charon-db', process.env.DB_PATH || path.join(REPO_ROOT, 'charon.sqlite')));
 const harvesterDbPath = path.resolve(argValue(
   'harvester-db',
-  process.env.HARVESTER_DB_PATH || path.join(REPO_ROOT, '../moonbags/tools/wallet-harvester/data/harvester.db'),
+  process.env.HARVESTER_DB_PATH || path.join(REPO_ROOT, 'tools/wallet-harvester/data/harvester.db'),
 ));
 
 if (!fs.existsSync(charonDbPath)) throw new Error(`Charon DB not found: ${charonDbPath}`);

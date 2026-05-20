@@ -23,7 +23,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '..');
 
 // Local dev default; override with HARVESTER_DB_PATH or --harvester-db for VPS/CI layouts.
-const DEFAULT_HARVESTER_DB = path.join(REPO_ROOT, '../moonbags/tools/wallet-harvester/data/harvester.db');
+const DEFAULT_HARVESTER_DB = path.join(REPO_ROOT, 'tools/wallet-harvester/data/harvester.db');
 const DEFAULT_CHARON_DB = path.join(REPO_ROOT, 'charon.sqlite');
 const DEFAULT_LLM_BASE_URL = 'https://token-plan-sgp.xiaomimimo.com/v1';
 const DEFAULT_LLM_MODEL = 'mimo-v2.5-pro';

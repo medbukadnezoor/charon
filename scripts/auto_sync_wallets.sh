@@ -4,9 +4,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CHARON_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# Paths — adjust for VPS layout via MOONBAGS_DIR env override
-MOONBAGS_DIR="${MOONBAGS_DIR:-$(cd "$CHARON_DIR/../moonbags" && pwd 2>/dev/null || echo "$CHARON_DIR/../moonbags")}"
-HARVESTER_DIR="$MOONBAGS_DIR/tools/wallet-harvester"
+# Paths — adjust for VPS layout via HARVESTER_DIR env override
+HARVESTER_DIR="${HARVESTER_DIR:-$CHARON_DIR/tools/wallet-harvester}"
 # Allow env var overrides for VPS layouts where DBs live outside the repo dir
 CHARON_DB="${CHARON_DB_PATH:-$CHARON_DIR/charon.sqlite}"
 HARVESTER_DB="${HARVESTER_DB_PATH:-$HARVESTER_DIR/data/harvester.db}"
@@ -102,15 +101,15 @@ echo "$LOG_PREFIX Starting wallet auto-sync pipeline"
 echo "$LOG_PREFIX CHARON_DIR=$CHARON_DIR"
 echo "$LOG_PREFIX HARVESTER_DIR=$HARVESTER_DIR"
 
-MOONBAGS_ENV="$MOONBAGS_DIR/.env"
-if [ -f "$MOONBAGS_ENV" ]; then
+HARVESTER_ENV="${HARVESTER_ENV_PATH:-$HARVESTER_DIR/.env}"
+if [ -f "$HARVESTER_ENV" ]; then
   set -a
   # shellcheck disable=SC1090
-  . "$MOONBAGS_ENV"
+  . "$HARVESTER_ENV"
   set +a
-  echo "$LOG_PREFIX Loaded MoonBags environment for harvester"
+  echo "$LOG_PREFIX Loaded harvester environment from $HARVESTER_ENV"
 else
-  echo "$LOG_PREFIX MoonBags environment file not found; harvester enrichment may be limited"
+  echo "$LOG_PREFIX Harvester .env not found at $HARVESTER_ENV; using PM2/process env only"
 fi
 
 # GMGN discovery breadth. These defaults widen each token's holder/trader scan

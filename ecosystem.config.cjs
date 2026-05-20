@@ -32,7 +32,6 @@ module.exports = {
         NODE_ENV: "production",
         CHARON_DB_PATH: "/opt/trading-data/charon.sqlite",
         HARVESTER_DB_PATH: "/opt/trading-data/harvester.db",
-        MOONBAGS_DIR: "/home/opc/moonbags",
         LOG_DIR: "/opt/trading-data/logs",
         HARVESTER_ENABLE_OKX_DISCOVERY: "true",
         HARVESTER_OKX_MAX_CALLS_PER_RUN: "55",

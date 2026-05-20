@@ -7,7 +7,7 @@ import Database from 'better-sqlite3';
 const KOL_TAG_RE = /(kol|renowned|influencer|caller|alpha)/i;
 const DEFAULT_HARVESTER_DB_PATH = path.resolve(
   process.cwd(),
-  '../moonbags/tools/wallet-harvester/data/harvester.db',
+  'tools/wallet-harvester/data/harvester.db',
 );
 
 // In-memory cache — populated at startup and refreshed every 5 min

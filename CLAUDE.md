@@ -67,7 +67,8 @@ WP-M5 and WP-M6 wallet pipeline fully landed and live on VPS (moonbags, 140.245.
 | `/opt/trading-data/harvester.db` | Harvester DB |
 | `/opt/trading-data/logs/auto-sync-YYYY-MM-DD.log` | Auto-sync pipeline logs |
 | `~/charon/` | Charon repo |
-| `~/moonbags/` | MoonBags repo (harvester source) |
+| `~/charon/tools/wallet-harvester/` | Wallet harvester source |
+| `~/moonbags/` | Legacy MoonBags repo context; no longer the harvester source |
 
 ### PM2 processes
 
@@ -84,6 +85,7 @@ In addition to the original wallet-pipeline exceptions:
 - `scripts/auto_sync_wallets.sh` may run the full harvest→enrich→sync→restart pipeline
 - `scripts/refresh_wallet_pnl.js` may call Jupiter PnL endpoint (paced, bounded)
 - `ecosystem.config.cjs` may be updated for PM2 process management
+- `tools/wallet-harvester/` is the Charon-owned wallet harvester source tree
 
 ## Next Safe Action
 
