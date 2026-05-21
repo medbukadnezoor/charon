@@ -38,6 +38,14 @@ const RUNNER_CAPTURE_CONFIG = {
   // Filter relaxation for runner capture
   max_top20_holder_percent: 45,       // was 30, recovers 11 runners
   min_fee_claim_sol: 0.50,            // was 0.75, recovers 6 runners
+
+  // Fee-claim secondary path (alt gate)
+  require_fee_claim: false,               // replaced by alt gate logic
+  fee_claim_alt_gate_enabled: true,       // enable secondary path
+  fee_claim_alt_threshold: 40,            // min alt quality score to proceed
+  fee_claim_alt_min_saved_wallet_holders: 2,
+  fee_claim_alt_max_top20_holder_percent: 40,
+  fee_claim_alt_min_source_count: 2,
 };
 
 const GLOBAL_SETTINGS = {

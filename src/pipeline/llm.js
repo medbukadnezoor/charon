@@ -227,6 +227,9 @@ export async function compactCandidateForLlm(row, rpcCache = new Map()) {
     kolDumpRisk: c.kolDumpRisk,
     twitterNarrative: c.twitterNarrative,
     filters: c.filters,
+    data_quality: c.dataQuality || 'full',
+    missing_fields: c.missingFields?.length > 0 ? c.missingFields : undefined,
+    alternate_quality_score: c.alternateQualityScore ?? undefined,
   };
   if (intelligenceEnabled) {
     const analysis = await analyzeHolders(c.holders, {
@@ -308,6 +311,11 @@ export async function decideCandidateBatch(rows, triggerCandidateId) {
     'Use concentrationRisk and scalar metrics for baseline holder assessment; use conclusions for specific risks, weighting conflicting conclusions by confidence.',
     'Evidence arrays contain shortened wallet addresses in first4...last3 format, with higher-severity conclusions carrying more evidence detail.',
     'Confidence is your conviction from 0 to 100, not probability.',
+    "When a candidate has data_quality 'partial', one or more data fields are missing (see missing_fields).",
+    'Missing fee_claim means no on-chain fee distribution was observed at screening time.',
+    'This does NOT disqualify the candidate — early-stage runners often lack fee data.',
+    'For partial-data candidates, weight saved wallet exposure, source count, and holder distribution more heavily.',
+    'Apply slightly higher confidence bar (add ~5-10 to your confidence threshold) for partial-data candidates.',
   ].join(' ');
   const user = {
     task: 'Pick the best dry-run buy candidate from this recent batch, or choose none.',

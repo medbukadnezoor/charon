@@ -475,6 +475,8 @@ export function initDb() {
   ensureColumn('llm_batches', 'trim_stages', 'TEXT');
   ensureColumn('llm_batches', 'candidate_count', 'INTEGER');
   ensureColumn('llm_batches', 'rpc_enrichment_used', 'INTEGER DEFAULT 0');
+  ensureColumn('screening_events', 'screening_path', "TEXT DEFAULT 'primary'");
+  ensureColumn('screening_events', 'alternate_quality_score', 'INTEGER');
 
   const telemetryDefaults = {
     ledger_writer_enabled: process.env.LEDGER_WRITER_ENABLED || 'false',

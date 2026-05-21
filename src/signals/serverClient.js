@@ -1,4 +1,5 @@
 import axios from 'axios';
+import crypto from 'node:crypto';
 import { SIGNAL_SERVER_URL, SIGNAL_SERVER_KEY, SIGNAL_POLL_MS } from '../config.js';
 import { now } from '../utils.js';
 import { activeStrategy } from '../db/settings.js';
@@ -57,6 +58,35 @@ export function buildSignalMeta({ signal, sourceCount, sources, hasFeeClaim, rou
   };
 }
 
+function stableSignalProjection(signal) {
+  const sources = sourceLabels(signal).sort();
+  return {
+    mint: signal?.mint || '',
+    sources,
+    sourceCount: Number(signal?.sourceCount || sources.length || 0),
+    symbol: signal?.symbol || null,
+    priceUsd: signal?.priceUsd ?? null,
+    marketCapUsd: signal?.marketCapUsd ?? null,
+    liquidityUsd: signal?.liquidityUsd ?? null,
+    volume5m: signal?.volume5m ?? null,
+    volume24h: signal?.volume24h ?? null,
+    holders: signal?.holders ?? null,
+    ageMs: signal?.ageMs ?? null,
+    feeClaimSignature: signal?.feeClaim?.signature || null,
+    feeClaimDistributedSol: signal?.feeClaim?.distributedSol ?? null,
+    trendingBuys: signal?.trending?.buys ?? null,
+    trendingSells: signal?.trending?.sells ?? null,
+    graduatedDistanceFromAthPercent: signal?.graduated?.distanceFromAthPercent ?? null,
+  };
+}
+
+export function signalBatchIdentity(signals = []) {
+  const stable = signals
+    .map(stableSignalProjection)
+    .sort((a, b) => a.mint.localeCompare(b.mint) || a.sources.join('+').localeCompare(b.sources.join('+')));
+  return crypto.createHash('sha256').update(JSON.stringify(stable)).digest('hex').slice(0, 16);
+}
+
 function logEarlySignalSkip({ signal, strat, signalMeta, reasonCode, reasonText }) {
   try {
     logScreeningEvent({
@@ -87,6 +117,7 @@ function logEarlySignalSkip({ signal, strat, signalMeta, reasonCode, reasonText 
 
 export async function fetchServerSignals() {
   try {
+    const batchAtMs = now();
     const url = new URL('/api/signals', SIGNAL_SERVER_URL);
     url.searchParams.set('limit', '100');
     url.searchParams.set('minSources', '2');
@@ -96,6 +127,7 @@ export async function fetchServerSignals() {
       headers: SIGNAL_SERVER_KEY ? { 'x-api-key': SIGNAL_SERVER_KEY } : {},
     });
     const signals = res.data?.signals || [];
+    const signalBatchId = signalBatchIdentity(signals);
 
     prune(seenSignals, 10 * 60_000);
 
@@ -156,7 +188,7 @@ export async function fetchServerSignals() {
       // Store signal events
       for (const source of signal.sources) {
         const kind = source.includes('trending') ? 'trending' : source.includes('fee') ? 'fee_claim' : 'graduated';
-        storeSignalEvent(mint, kind, source, signal);
+        storeSignalEvent(mint, kind, source, signal, { batchAtMs, signalBatchId });
       }
 
       const graduatedCoin = graduated.get(mint) || signal.graduated || null;
@@ -171,7 +203,7 @@ export async function fetchServerSignals() {
         sources,
         hasFeeClaim: hasFee,
         route,
-        seenAtMs: now(),
+        seenAtMs: batchAtMs,
       });
 
       // Strategy gate: check source count
@@ -189,15 +221,39 @@ export async function fetchServerSignals() {
 
       // Strategy gate: fee claim requirement
       if (strat.require_fee_claim && !hasFee) {
-        logEarlySignalSkip({
-          signal,
-          strat,
-          signalMeta,
-          reasonCode: 'fee_claim_missing_required',
-          reasonText: 'fee claim missing but required by strategy',
-        });
-        processed++;
-        continue;
+        const altEnabled = strat.fee_claim_alt_gate_enabled ?? false;
+        if (!altEnabled) {
+          logEarlySignalSkip({
+            signal, strat, signalMeta,
+            reasonCode: 'fee_claim_missing_required',
+            reasonText: 'fee claim missing but required by strategy',
+          });
+          processed++;
+          continue;
+        }
+        // Alt gate enabled: compute early quality score from signal-level data
+        const swHolders = signalMeta?.savedWalletHolderCount || 0;
+        const sourceCount = signal?.sourceCount || 1;
+        const hasGraduated = Boolean(signal?.graduated);
+        const hasTrending = Boolean(signal?.trending);
+        const gmgnFees = signalMeta?.gmgnTotalFeeSol || 0;
+        let altScore = 0;
+        altScore += Math.min(swHolders * 15, 45);
+        altScore += Math.min((sourceCount - 1) * 10, 30);
+        if (hasGraduated) altScore += 15;
+        if (hasTrending) altScore += 10;
+        if (gmgnFees > 0) altScore += 10;
+        const altThreshold = strat.fee_claim_alt_threshold ?? 40;
+        if (altScore < altThreshold) {
+          logEarlySignalSkip({
+            signal, strat, signalMeta,
+            reasonCode: 'fee_claim_missing_alt_score',
+            reasonText: `fee claim missing, alt score ${altScore} < threshold ${altThreshold}`,
+          });
+          processed++;
+          continue;
+        }
+        // Alt score passes — allow through to buildCandidate (secondary path)
       }
 
       // Strategy gate: token age

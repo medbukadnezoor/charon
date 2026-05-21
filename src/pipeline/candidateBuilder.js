@@ -91,7 +91,7 @@ export function logCandidateFilterOutcome(candidate, strat) {
     : filters.primaryFailureCode || 'candidate_filter_failed';
 
   try {
-    logScreeningEvent({
+    return logScreeningEvent({
       stage: 'candidate_filter',
       action,
       reasonCode,
@@ -105,6 +105,7 @@ export function logCandidateFilterOutcome(candidate, strat) {
     });
   } catch (err) {
     console.log(`[candidate] screening event log failed for ${reasonCode}: ${err.message}`);
+    return null;
   }
 }
 
@@ -127,6 +128,23 @@ export function signalLabel(signals = {}) {
     signals.hasGraduated ? 'graduated' : null,
     signals.hasTrending ? 'trending' : null,
   ].filter(Boolean).join(' + ') || signals.route || 'unknown';
+}
+
+function computeAlternateQualityScore(candidate) {
+  let score = 0;
+  // Saved wallet holders — strongest signal when fee claim absent
+  const swHolders = candidate.savedWalletExposure?.holderCount || 0;
+  score += Math.min(swHolders * 15, 45);
+  // Signal source count — multiple sources = higher confidence
+  const sources = candidate.signals?.sourceCount || 1;
+  score += Math.min((sources - 1) * 10, 30);
+  // Has graduated — on-chain maturity signal
+  if (candidate.graduation) score += 15;
+  // Has trending data — market activity signal
+  if (candidate.trending) score += 10;
+  // GMGN fees available — alternate fee signal
+  if ((candidate.metrics?.gmgnTotalFeesSol || 0) > 0) score += 10;
+  return score;
 }
 
 export function filterCandidate(candidate) {
@@ -161,7 +179,38 @@ export function filterCandidate(candidate) {
       addFailure('min_fee_claim_sol', `fee claim: ${feeSol} SOL < min ${minFee} SOL`);
     }
   } else if (strat.require_fee_claim) {
-    addFailure('fee_claim_missing_required', 'fee claim: missing (required by strategy)');
+    const altEnabled = strat.fee_claim_alt_gate_enabled ?? false;
+    if (!altEnabled) {
+      addFailure('fee_claim_missing_required', 'fee claim: missing (required by strategy)');
+    } else {
+      // Secondary path: alternate quality gate when fee claim is absent
+      const altScore = computeAlternateQualityScore(candidate);
+      const altThreshold = strat.fee_claim_alt_threshold ?? 40;
+      if (altScore < altThreshold) {
+        addFailure('fee_claim_missing_alt_score', `fee claim missing, alt score ${altScore} < threshold ${altThreshold}`);
+      } else {
+        // Tighter alternate thresholds
+        const altMinSw = strat.fee_claim_alt_min_saved_wallet_holders ?? 2;
+        const altMaxHolder = strat.fee_claim_alt_max_top20_holder_percent ?? 40;
+        const altMinSources = strat.fee_claim_alt_min_source_count ?? 2;
+        const swHolders = candidate.savedWalletExposure?.holderCount || 0;
+        const sourceCount = candidate.signals?.sourceCount || 1;
+        const top20Pct = candidate.holders?.top20Percent || candidate.holders?.maxHolderPercent || 0;
+        if (swHolders < altMinSw) {
+          addFailure('fee_claim_alt_min_saved_wallets', `alt gate: saved_wallet_holders ${swHolders} < ${altMinSw}`);
+        }
+        if (top20Pct > altMaxHolder) {
+          addFailure('fee_claim_alt_max_holder_pct', `alt gate: top20_holder_pct ${top20Pct} > ${altMaxHolder}`);
+        }
+        if (sourceCount < altMinSources) {
+          addFailure('fee_claim_alt_min_sources', `alt gate: source_count ${sourceCount} < ${altMinSources}`);
+        }
+        // Mark as secondary path for LLM awareness
+        candidate.dataQuality = 'partial';
+        candidate.missingFields = ['fee_claim'];
+        candidate.alternateQualityScore = altScore;
+      }
+    }
   }
 
   // Market cap checks
@@ -329,7 +378,10 @@ export async function buildCandidate({ mint, fee = null, signature = null, gradu
     mcapSample,
     createdAtMs: now(),
   };
+  candidate.dataQuality = candidate.dataQuality || 'full';
+  candidate.missingFields = candidate.missingFields || [];
+  candidate.alternateQualityScore = candidate.alternateQualityScore || null;
   candidate.filters = filterCandidate(candidate);
-  logCandidateFilterOutcome(candidate, strat);
+  candidate.screeningEventId = logCandidateFilterOutcome(candidate, strat);
   return candidate;
 }
