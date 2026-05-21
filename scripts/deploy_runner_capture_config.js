@@ -46,6 +46,12 @@ const RUNNER_CAPTURE_CONFIG = {
   fee_claim_alt_min_saved_wallet_holders: 2,
   fee_claim_alt_max_top20_holder_percent: 40,
   fee_claim_alt_min_source_count: 2,
+
+  // Re-entry rule
+  reentry_enabled: true,
+  reentry_window_ms: 86400000,      // 24h watch window after SL
+  reentry_min_mcap_recovery: 1.0,   // must recover to >= entry mcap
+  reentry_max_per_mint: 1,          // only re-enter once per mint per window
 };
 
 const GLOBAL_SETTINGS = {

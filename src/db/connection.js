@@ -402,6 +402,18 @@ export function initDb() {
       status TEXT NOT NULL,
       response_json TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS reentry_watchlist (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      mint TEXT NOT NULL,
+      original_position_id INTEGER NOT NULL,
+      entry_mcap REAL NOT NULL,
+      sl_mcap REAL NOT NULL,
+      stopped_at_ms INTEGER NOT NULL,
+      expires_at_ms INTEGER NOT NULL,
+      reentry_triggered INTEGER DEFAULT 0,
+      reentry_position_id INTEGER,
+      created_at_ms INTEGER NOT NULL
+    );
     CREATE INDEX IF NOT EXISTS idx_alerts_status ON price_alerts(status, expires_at_ms);
     CREATE INDEX IF NOT EXISTS idx_candidates_mint ON candidates(mint);
     CREATE INDEX IF NOT EXISTS idx_positions_status ON dry_run_positions(status);
@@ -426,6 +438,7 @@ export function initDb() {
     CREATE INDEX IF NOT EXISTS idx_provider_call_ledger_queue ON provider_call_ledger(queue_id, at_ms);
     CREATE INDEX IF NOT EXISTS idx_collector_runs_started ON telemetry_collector_runs(started_at_ms);
     CREATE INDEX IF NOT EXISTS idx_provider_response_cache_provider ON provider_response_cache(provider, endpoint, mint, time_bucket);
+    CREATE INDEX IF NOT EXISTS idx_reentry_watchlist_mint ON reentry_watchlist (mint, reentry_triggered, expires_at_ms);
   `);
   // WP-M5-1: extend saved_wallets with cached intelligence columns
   ensureColumn('saved_wallets', 'tags_json', "TEXT DEFAULT '[]'");

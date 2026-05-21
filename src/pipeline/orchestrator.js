@@ -21,6 +21,8 @@ import { queueCandidateObservation } from '../db/observations.js';
 import { enrichOverview, isEnabled as isInsightXEnabled, shouldSampleInsightX } from '../providers/insightx.js';
 import { fetchBirdeyeOhlcv } from '../enrichment/birdeye.js';
 import { computeEntrySignals } from '../analysis/ohlcvSignals.js';
+import { getActiveReentryWatch, markReentryTriggered } from '../db/reentry.js';
+import { db } from '../db/connection.js';
 
 export const seenSignalCandidates = new Map();
 
@@ -71,6 +73,59 @@ export async function processCandidateFromSignals(signals) {
     action: candidate.filters.passed ? 'passed' : 'filtered',
     eligibilityReason: candidate.filters.primaryFailureCode || 'candidate_filter',
   });
+
+  // Re-entry fast path: bypass LLM for mints that hit SL and recovered
+  const reentryStrat = activeStrategy();
+  if (reentryStrat?.reentry_enabled) {
+    const watch = getActiveReentryWatch(signals.mint);
+    if (watch) {
+      const currentMcap = Number(candidate.mcapSample?.marketCapUsd || candidate.metrics?.marketCapUsd || 0);
+      const minRecovery = Number(reentryStrat.reentry_min_mcap_recovery ?? 1.0);
+      if (currentMcap >= watch.entry_mcap * minRecovery) {
+        console.log(`[reentry] ${signals.mint.slice(0, 8)} recovered to ${Math.round(currentMcap / 1000)}k (entry was ${Math.round(watch.entry_mcap / 1000)}k) — attempting re-entry`);
+        // Run OHLCV entry confirmation before re-entering
+        let ohlcvConfirmed = true;
+        if (boolSetting('entry_confirm_enabled', false)) {
+          try {
+            const ohlcv = await fetchBirdeyeOhlcv(signals.mint, { interval: '1m', count: 15 });
+            const entrySignals = computeEntrySignals(ohlcv.candles || []);
+            if (!entrySignals.confirm) {
+              console.log(`[reentry] ${signals.mint.slice(0, 8)} OHLCV rejected re-entry: ${entrySignals.reject_reason}`);
+              ohlcvConfirmed = false;
+            }
+          } catch (err) {
+            console.log(`[reentry] OHLCV check failed: ${err.message}, proceeding`);
+          }
+        }
+        if (ohlcvConfirmed && canOpenMorePositions()) {
+          const reentryDecision = {
+            verdict: 'BUY',
+            confidence: 85,
+            selected_candidate_id: candidateId,
+            selected_mint: signals.mint,
+            selected_row: candidateById(candidateId),
+            reason: `Re-entry: mint recovered to ${Math.round(currentMcap / 1000)}k after SL at ${Math.round(watch.sl_mcap / 1000)}k (original position #${watch.original_position_id})`,
+            risks: ['reentry_position'],
+            suggested_tp_percent: reentryStrat.tp_percent ?? 300,
+            suggested_sl_percent: reentryStrat.sl_percent ?? -60,
+            raw: null,
+          };
+          await handleApprovedBuy(
+            reentryDecision.selected_row,
+            reentryDecision,
+            null,
+            [],
+            candidateId,
+          );
+          // Mark watch as triggered after position is created
+          const openPos = db.prepare("SELECT id FROM dry_run_positions WHERE mint = ? AND status = 'open' ORDER BY id DESC LIMIT 1").get(signals.mint);
+          if (openPos) markReentryTriggered(watch.id, openPos.id);
+          return;
+        }
+      }
+    }
+  }
+
   if (!candidate.filters.passed) {
     console.log(`[candidate] filtered ${candidate.token.mint.slice(0, 8)}... ${candidate.filters.failures.join('; ')}`);
     return;

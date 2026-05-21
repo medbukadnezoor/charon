@@ -15,6 +15,7 @@ import { sampleMarketCap } from '../enrichment/mcapSampler.js';
 import { recordDeployerObservation } from '../db/blacklist.js';
 import { fetchBirdeyeOhlcv } from '../enrichment/birdeye.js';
 import { computeCutoffSignals } from '../analysis/ohlcvSignals.js';
+import { insertReentryWatch, pruneReentryWatches } from '../db/reentry.js';
 
 export async function freshEntryMarket(mint, candidate) {
   const mcapSample = await sampleMarketCap({
@@ -456,6 +457,25 @@ export async function refreshPosition(position, {
     `).run(position.id, position.mint, now(), price, mcap, position.size_sol, position.token_amount_est, exitReason, json({ pnlPercent: finalPnlPercent, pnlSol: finalPnlSol, drySlippagePct, dryFeePct, mcapSample }));
     recordHardLossObservation(position, { exitReason, pnlPercent: finalPnlPercent, pnlSol: finalPnlSol, mcapSample });
     closed = true;
+  }
+  // Re-entry watch: track SL exits for potential re-entry
+  if (exitReason === 'SL') {
+    try {
+      if (strat?.reentry_enabled) {
+        const windowMs = Number(strat.reentry_window_ms ?? 86400000);
+        insertReentryWatch({
+          mint: position.mint,
+          originalPositionId: position.id,
+          entryMcap: Number(position.entry_mcap),
+          slMcap: Number(mcap),
+          windowMs,
+        });
+        pruneReentryWatches();
+        console.log(`[reentry] ${position.mint.slice(0, 8)} SL exit — watching for re-entry for ${windowMs / 3600000}h`);
+      }
+    } catch (err) {
+      console.log(`[reentry] watch insert failed: ${err.message}`);
+    }
   }
   return {
     ...position,
