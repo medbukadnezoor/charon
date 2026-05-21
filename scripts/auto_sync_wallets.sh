@@ -137,7 +137,12 @@ echo "$LOG_PREFIX Step 1: Harvester complete"
 
 # Step 2: Enrich wallets with GMGN profiles (non-fatal if profile API is limited)
 echo "$LOG_PREFIX Step 2: Enriching wallet profiles (limit $HARVESTER_PROFILE_ENRICH_LIMIT)..."
-npx tsx src/enrichWalletProfile.ts --limit="$HARVESTER_PROFILE_ENRICH_LIMIT" 2>&1 | tail -10 || true
+OKX_FLAG=""
+if [ "$HARVESTER_ENABLE_OKX_DISCOVERY" = "true" ]; then
+  OKX_FLAG="--okx"
+fi
+# shellcheck disable=SC2086
+npx tsx src/enrichWalletProfile.ts --limit="$HARVESTER_PROFILE_ENRICH_LIMIT" $OKX_FLAG 2>&1 | tail -10 || true
 echo "$LOG_PREFIX Step 2: Enrichment complete"
 
 # Step 3: Sync new enriched wallets to Charon
