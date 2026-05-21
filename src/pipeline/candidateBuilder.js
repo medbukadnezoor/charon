@@ -178,11 +178,12 @@ export function filterCandidate(candidate) {
     if (minFee > 0 && feeSol < minFee) {
       addFailure('min_fee_claim_sol', `fee claim: ${feeSol} SOL < min ${minFee} SOL`);
     }
-  } else if (strat.require_fee_claim) {
+  } else {
+    // No fee claim — hard-reject if required and alt gate off; run alt gate if enabled
     const altEnabled = strat.fee_claim_alt_gate_enabled ?? false;
-    if (!altEnabled) {
+    if (strat.require_fee_claim && !altEnabled) {
       addFailure('fee_claim_missing_required', 'fee claim: missing (required by strategy)');
-    } else {
+    } else if (altEnabled) {
       // Secondary path: alternate quality gate when fee claim is absent
       const altScore = computeAlternateQualityScore(candidate);
       const altThreshold = strat.fee_claim_alt_threshold ?? 40;

@@ -219,10 +219,10 @@ export async function fetchServerSignals() {
         continue;
       }
 
-      // Strategy gate: fee claim requirement
-      if (strat.require_fee_claim && !hasFee) {
+      // Strategy gate: fee claim
+      if (!hasFee) {
         const altEnabled = strat.fee_claim_alt_gate_enabled ?? false;
-        if (!altEnabled) {
+        if (strat.require_fee_claim && !altEnabled) {
           logEarlySignalSkip({
             signal, strat, signalMeta,
             reasonCode: 'fee_claim_missing_required',
@@ -230,30 +230,32 @@ export async function fetchServerSignals() {
           });
           processed++;
           continue;
+        } else if (altEnabled) {
+          // Alt gate enabled: compute early quality score from signal-level data
+          const swHolders = signalMeta?.savedWalletHolderCount || 0;
+          const sourceCount = signal?.sourceCount || 1;
+          const hasGraduated = Boolean(signal?.graduated);
+          const hasTrending = Boolean(signal?.trending);
+          const gmgnFees = signalMeta?.gmgnTotalFeeSol || 0;
+          let altScore = 0;
+          altScore += Math.min(swHolders * 15, 45);
+          altScore += Math.min((sourceCount - 1) * 10, 30);
+          if (hasGraduated) altScore += 15;
+          if (hasTrending) altScore += 10;
+          if (gmgnFees > 0) altScore += 10;
+          const altThreshold = strat.fee_claim_alt_threshold ?? 40;
+          if (altScore < altThreshold) {
+            logEarlySignalSkip({
+              signal, strat, signalMeta,
+              reasonCode: 'fee_claim_missing_alt_score',
+              reasonText: `fee claim missing, alt score ${altScore} < threshold ${altThreshold}`,
+            });
+            processed++;
+            continue;
+          }
+          // Alt score passes — allow through to buildCandidate (secondary path)
         }
-        // Alt gate enabled: compute early quality score from signal-level data
-        const swHolders = signalMeta?.savedWalletHolderCount || 0;
-        const sourceCount = signal?.sourceCount || 1;
-        const hasGraduated = Boolean(signal?.graduated);
-        const hasTrending = Boolean(signal?.trending);
-        const gmgnFees = signalMeta?.gmgnTotalFeeSol || 0;
-        let altScore = 0;
-        altScore += Math.min(swHolders * 15, 45);
-        altScore += Math.min((sourceCount - 1) * 10, 30);
-        if (hasGraduated) altScore += 15;
-        if (hasTrending) altScore += 10;
-        if (gmgnFees > 0) altScore += 10;
-        const altThreshold = strat.fee_claim_alt_threshold ?? 40;
-        if (altScore < altThreshold) {
-          logEarlySignalSkip({
-            signal, strat, signalMeta,
-            reasonCode: 'fee_claim_missing_alt_score',
-            reasonText: `fee claim missing, alt score ${altScore} < threshold ${altThreshold}`,
-          });
-          processed++;
-          continue;
-        }
-        // Alt score passes — allow through to buildCandidate (secondary path)
+        // else: require_fee_claim=false, alt gate disabled → pass through unchanged
       }
 
       // Strategy gate: token age
