@@ -16,6 +16,52 @@ import { recordDeployerObservation } from '../db/blacklist.js';
 import { fetchBirdeyeOhlcv } from '../enrichment/birdeye.js';
 import { computeCutoffSignals } from '../analysis/ohlcvSignals.js';
 import { insertReentryWatch, pruneReentryWatches } from '../db/reentry.js';
+import { buildCutoffLlmPayload } from '../pipeline/llm.js';
+import { LLM_BASE_URL, LLM_API_KEY, LLM_MODEL, LLM_TIMEOUT_MS } from '../config.js';
+
+async function callCutoffLlm(position, { ohlcvCandles, cutoffSignals, pnlPercent, holdTimeMin }) {
+  try {
+    const { systemPrompt, userPayload } = buildCutoffLlmPayload(position, {
+      ohlcvCandles,
+      cutoffSignals,
+      pnlPercent,
+      holdTimeMin,
+    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), Math.min(LLM_TIMEOUT_MS, 30000));
+    const resp = await fetch(`${LLM_BASE_URL}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${LLM_API_KEY}` },
+      body: JSON.stringify({
+        model: LLM_MODEL,
+        temperature: 0.1,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: JSON.stringify(userPayload) },
+        ],
+      }),
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    const text = data.choices?.[0]?.message?.content || '';
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) return null;
+    const parsed = JSON.parse(match[0]);
+    const verdict = String(parsed.verdict || '').toUpperCase();
+    if (!['CUT', 'HOLD', 'TIGHTEN_SL'].includes(verdict)) return null;
+    return {
+      verdict,
+      confidence: Number(parsed.confidence) || 50,
+      reason: String(parsed.reason || ''),
+      suggested_new_sl_percent: parsed.suggested_new_sl_percent != null ? Number(parsed.suggested_new_sl_percent) : null,
+    };
+  } catch (err) {
+    console.log(`[soft-cutoff] LLM call failed: ${err.message}`);
+    return null;
+  }
+}
 
 export async function freshEntryMarket(mint, candidate) {
   const mcapSample = await sampleMarketCap({
@@ -256,20 +302,33 @@ export async function refreshPosition(position, {
             highWaterMcap: Number(highWaterMcap),
           });
 
-          if (signals.recommendation === 'cut') {
+          // Try LLM for smarter decision, fall back to indicator-only
+          const holdTimeMin = Math.round((now() - Number(position.opened_at_ms)) / 60000);
+          const llmDecision = await callCutoffLlm(position, {
+            ohlcvCandles: ohlcv.candles || [],
+            cutoffSignals: signals,
+            pnlPercent,
+            holdTimeMin,
+          });
+
+          // Use LLM verdict if available, otherwise fall back to indicator recommendation
+          const finalVerdict = llmDecision?.verdict || signals.recommendation.toUpperCase();
+          const finalReason = llmDecision?.reason || `indicator: ${signals.recommendation}`;
+          console.log(`[soft-cutoff] ${position.id} LLM=${llmDecision?.verdict || 'n/a'} indicator=${signals.recommendation} → ${finalVerdict} (${finalReason})`);
+
+          if (finalVerdict === 'CUT') {
             exitReason = 'SOFT_CUTOFF_CUT';
-            console.log(`[soft-cutoff] ${position.id} CUT: RSI=${signals.rsi?.toFixed(1)} mom=${signals.momentum?.toFixed(3)} vol=${signals.volume_trend} struct=${signals.structure}`);
-          } else if (signals.recommendation === 'tighten') {
-            // Tighten SL to -30% or breakeven (whichever is tighter)
-            const tightenedSl = Math.max(-30, breakevenLockPercent);
+            console.log(`[soft-cutoff] ${position.id} CUT: RSI=${signals.rsi?.toFixed(1)} mom=${signals.momentum?.toFixed(3)} vol=${signals.volume_trend}`);
+          } else if (finalVerdict === 'TIGHTEN_SL') {
+            const suggestedSl = llmDecision?.suggested_new_sl_percent ?? Math.max(-30, breakevenLockPercent);
+            const tightenedSl = Math.max(suggestedSl, -60); // never tighten beyond original SL
             db.prepare('UPDATE dry_run_positions SET effective_sl_percent = ?, cutoff_checks = ?, next_cutoff_at_ms = ? WHERE id = ?')
               .run(tightenedSl, cutoffChecks + 1, now() + recheckMs, position.id);
-            console.log(`[soft-cutoff] ${position.id} TIGHTEN: SL moved to ${tightenedSl}%, recheck #${cutoffChecks + 1} in ${recheckMs / 60000}min`);
+            console.log(`[soft-cutoff] ${position.id} TIGHTEN: SL moved to ${tightenedSl}%, recheck #${cutoffChecks + 1}`);
           } else {
-            // Hold — schedule next recheck
             db.prepare('UPDATE dry_run_positions SET cutoff_checks = ?, next_cutoff_at_ms = ? WHERE id = ?')
               .run(cutoffChecks + 1, now() + recheckMs, position.id);
-            console.log(`[soft-cutoff] ${position.id} HOLD: RSI=${signals.rsi?.toFixed(1)} mom=${signals.momentum?.toFixed(3)}, recheck #${cutoffChecks + 1} in ${recheckMs / 60000}min`);
+            console.log(`[soft-cutoff] ${position.id} HOLD: recheck #${cutoffChecks + 1} in ${recheckMs / 60000}min`);
           }
         } catch (err) {
           // On OHLCV fetch failure, schedule recheck without incrementing

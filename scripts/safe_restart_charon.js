@@ -50,6 +50,10 @@ function sleep(ms) {
 }
 
 function openPositionCount(db) {
+  const tableExists = db.prepare(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name='dry_run_positions'"
+  ).get();
+  if (!tableExists) return 0;
   return db.prepare(
     'SELECT COUNT(*) AS count FROM dry_run_positions WHERE status = ?'
   ).get('open').count;

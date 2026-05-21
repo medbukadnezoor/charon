@@ -16,12 +16,14 @@ const RUNNER_CAPTURE_CONFIG = {
   tp_percent: 300,
   sl_percent: -60,
 
-  // Breakeven drift
-  breakeven_after_profit_percent: 20,
-  breakeven_lock_percent: 0,
-
   // Trailing (disabled v1)
   trailing_enabled: false,
+
+  // Slippage/price impact simulation (drift)
+  // SL triggers at -60% but realized exit is ~-75% to -80% due to price impact
+  // TP triggers at +300% but realized exit is ~+285% due to price impact
+  dry_run_slippage_pct: 15,           // 15% slippage on dry-run exits
+  dry_run_fee_pct: 0.5,               // 0.5% fee per trade
 
   // Soft cutoff (OHLCV-based hold/cut at time limit)
   soft_cutoff_ms: 14400000,           // 4 hours
