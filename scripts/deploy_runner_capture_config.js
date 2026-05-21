@@ -58,6 +58,7 @@ const RUNNER_CAPTURE_CONFIG = {
 
 const GLOBAL_SETTINGS = {
   entry_confirm_enabled: 'true',
+  llm_payload_budget_kb: '70',
 };
 
 console.log(`Runner Capture Config Deployment`);
