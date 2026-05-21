@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { ENABLE_LLM, LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, LLM_TIMEOUT_MS } from '../config.js';
+import { ENABLE_LLM, LLM_API_KEY, LLM_BASE_URL, LLM_MAX_COMPLETION_TOKENS, LLM_MODEL, LLM_REASONING_EFFORT, LLM_TIMEOUT_MS } from '../config.js';
 import { now, stripThinking, strictJsonFromText } from '../utils.js';
 import { boolSetting, numSetting } from '../db/settings.js';
 import { db } from '../db/connection.js';
@@ -386,6 +386,8 @@ export async function decideCandidateBatch(rows, triggerCandidateId) {
       { role: 'user', content: JSON.stringify(budgetResult.payload) },
     ],
   };
+  if (LLM_REASONING_EFFORT) requestBody.reasoning_effort = LLM_REASONING_EFFORT;
+  if (LLM_MAX_COMPLETION_TOKENS > 0) requestBody.max_completion_tokens = LLM_MAX_COMPLETION_TOKENS;
   const requestBytes = jsonSizeBytes(requestBody);
   const requestStartedAt = now();
   let res = null;
@@ -461,4 +463,80 @@ export async function decideCandidate(candidate) {
   const pseudoRow = { id: 0, candidate };
   const decision = await decideCandidateBatch([pseudoRow], 0);
   return normalizeDecision(decision.raw || decision, decision.reason);
+}
+
+/**
+ * Build LLM payload for soft cutoff hold/cut/tighten decision.
+ * Called when a position reaches its soft_cutoff_ms hold time.
+ */
+export function buildCutoffLlmPayload(position, { ohlcvCandles = [], cutoffSignals = {}, pnlPercent = 0, holdTimeMin = 0 } = {}) {
+  const systemPrompt = [
+    'You are Charon, a Solana meme coin position manager.',
+    'You are evaluating whether to HOLD, CUT, or TIGHTEN_SL on an open position that has reached its soft time cutoff.',
+    'Return strict JSON only.',
+    '',
+    'HOLD: The token shows continued momentum or consolidation with bullish structure. Worth holding for another recheck window.',
+    'CUT: The token shows weakness, declining volume, or bearish structure. Exit at market.',
+    'TIGHTEN_SL: The token is neutral/uncertain. Tighten the stop loss to reduce risk while giving it more time.',
+    '',
+    'Base your decision on the OHLCV indicators, price momentum, volume trend, and candle structure.',
+    'A position in profit with declining momentum should be TIGHTEN_SL.',
+    'A position in loss with no recovery signals should be CUT.',
+    'A position showing fresh buying pressure and bullish structure should be HOLD.',
+  ].join('\n');
+
+  const userPayload = {
+    task: 'Evaluate this open position at soft cutoff time. Decide: HOLD, CUT, or TIGHTEN_SL.',
+    position: {
+      mint: position.mint,
+      symbol: position.symbol || null,
+      entry_mcap: Number(position.entry_mcap),
+      current_pnl_percent: Math.round(pnlPercent * 10) / 10,
+      hold_time_minutes: holdTimeMin,
+      high_water_mcap: Number(position.high_water_mcap),
+      sl_percent: Number(position.sl_percent),
+      tp_percent: Number(position.tp_percent),
+      effective_sl_percent: position.effective_sl_percent != null ? Number(position.effective_sl_percent) : Number(position.sl_percent),
+      breakeven_armed: Boolean(position.breakeven_armed),
+      cutoff_check_number: Number(position.cutoff_checks || 0) + 1,
+    },
+    indicators: {
+      rsi: cutoffSignals.rsi != null ? Math.round(cutoffSignals.rsi * 10) / 10 : null,
+      momentum: cutoffSignals.momentum != null ? Math.round(cutoffSignals.momentum * 1000) / 1000 : null,
+      volume_trend: cutoffSignals.volume_trend || 'unknown',
+      candle_structure: cutoffSignals.structure || 'unknown',
+      distance_from_hwm_pct: cutoffSignals.distance_from_hwm_pct != null ? Math.round(cutoffSignals.distance_from_hwm_pct * 10) / 10 : null,
+      recommendation: cutoffSignals.recommendation || 'unknown',
+    },
+    ohlcv_summary: summarizeOhlcv(ohlcvCandles),
+    output_schema: {
+      verdict: 'HOLD|CUT|TIGHTEN_SL',
+      confidence: '0-100',
+      reason: 'short string explaining the decision',
+      suggested_new_sl_percent: 'number or null (only for TIGHTEN_SL)',
+    },
+  };
+
+  return { systemPrompt, userPayload };
+}
+
+function summarizeOhlcv(candles) {
+  if (!Array.isArray(candles) || candles.length === 0) return null;
+  const valid = candles.filter(c => Number.isFinite(c.c) && Number.isFinite(c.v));
+  if (valid.length === 0) return null;
+  const first = valid[0];
+  const last = valid[valid.length - 1];
+  const highs = valid.map(c => c.h).filter(Number.isFinite);
+  const lows = valid.map(c => c.l).filter(Number.isFinite);
+  const vols = valid.map(c => c.v).filter(Number.isFinite);
+  return {
+    candle_count: valid.length,
+    period_start_price: first.c,
+    period_end_price: last.c,
+    period_high: Math.max(...highs),
+    period_low: Math.min(...lows),
+    period_change_pct: first.c > 0 ? Math.round(((last.c - first.c) / first.c) * 1000) / 10 : null,
+    avg_volume: vols.length > 0 ? Math.round(vols.reduce((a, b) => a + b, 0) / vols.length) : null,
+    last_3_candle_trend: valid.slice(-3).map(c => c.c > c.o ? 'green' : c.c < c.o ? 'red' : 'flat'),
+  };
 }
