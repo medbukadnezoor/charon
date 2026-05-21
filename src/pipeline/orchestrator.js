@@ -1,6 +1,6 @@
 import { now, pruneSeen } from '../utils.js';
 import { numSetting, boolSetting } from '../db/settings.js';
-import { upsertCandidate, updateCandidateStatus, recentEligibleCandidates, candidateById } from '../db/candidates.js';
+import { upsertCandidate, updateCandidateSnapshot, updateCandidateStatus, recentEligibleCandidates, candidateById } from '../db/candidates.js';
 import { storeDecision, storeBatchDecision, logDecisionEvent } from '../db/decisions.js';
 import { buildCandidate, filterCandidate, signalLabel } from './candidateBuilder.js';
 import { decideCandidateBatch } from './llm.js';
@@ -17,11 +17,40 @@ import { setCandidateHandler } from '../signals/feeClaim.js';
 import { short } from '../format.js';
 import { escapeHtml } from '../format.js';
 import { effectiveLlmMinConfidence, shouldApproveEntry } from './entryApproval.js';
+import { queueCandidateObservation } from '../db/observations.js';
+import { enrichOverview, isEnabled as isInsightXEnabled, shouldSampleInsightX } from '../providers/insightx.js';
+import { fetchBirdeyeOhlcv } from '../enrichment/birdeye.js';
+import { computeEntrySignals } from '../analysis/ohlcvSignals.js';
 
 export const seenSignalCandidates = new Map();
 
 setDegenHandler(maybeProcessDegenCandidate);
 setCandidateHandler(processCandidateFromSignals);
+
+export async function captureInsightXOverviewForCandidate(candidate, candidateId, {
+  onlyAfterLlmPass = boolSetting('insightx_only_after_llm_pass', false),
+  enabled = isInsightXEnabled,
+  shouldSample = shouldSampleInsightX,
+  enrich = enrichOverview,
+  updateSnapshot = updateCandidateSnapshot,
+  nowMs = now,
+} = {}) {
+  if (onlyAfterLlmPass) return false;
+  if (!enabled()) return false;
+  const mint = candidate?.token?.mint;
+  if (!shouldSample(mint)) return false;
+  try {
+    const overview = await enrich(mint);
+    if (!overview) return false;
+    candidate.insightx_overview = overview;
+    candidate.insightx_overview_at_ms = nowMs();
+    updateSnapshot(candidateId, candidate);
+    return true;
+  } catch (err) {
+    console.log(`[insightx] enrichment skipped for ${mint ? short(mint) : 'unknown mint'}: ${err.message}`);
+    return false;
+  }
+}
 
 export async function processCandidateFromSignals(signals) {
   // Skip if max positions reached — don't waste enrichment/LLM calls
@@ -34,10 +63,19 @@ export async function processCandidateFromSignals(signals) {
   const candidate = await buildCandidate(signals);
   const signature = signals.signature || null;
   const candidateId = upsertCandidate(candidate, signature);
+  queueCandidateObservation({
+    candidate,
+    candidateId,
+    screeningEventId: candidate.screeningEventId,
+    stage: 'candidate_filter',
+    action: candidate.filters.passed ? 'passed' : 'filtered',
+    eligibilityReason: candidate.filters.primaryFailureCode || 'candidate_filter',
+  });
   if (!candidate.filters.passed) {
     console.log(`[candidate] filtered ${candidate.token.mint.slice(0, 8)}... ${candidate.filters.failures.join('; ')}`);
     return;
   }
+  await captureInsightXOverviewForCandidate(candidate, candidateId);
 
   const strat = activeStrategy();
   let rows, batchDecision, batchId;
@@ -77,6 +115,15 @@ export async function processCandidateFromSignals(signals) {
   const currentDecisionId = storeDecision(candidateId, candidate, currentDecision);
   currentDecision.id = currentDecisionId;
   updateCandidateStatus(candidateId, currentDecision.verdict.toLowerCase());
+  queueCandidateObservation({
+    candidate,
+    candidateId,
+    screeningEventId: candidate.screeningEventId,
+    batchId,
+    stage: 'llm_decision',
+    action: currentDecision.verdict === 'BUY' ? 'buy_selected' : 'watch',
+    eligibilityReason: currentDecision.reason || currentDecision.verdict,
+  });
 
   if (selectedRow && !selectedThisCandidate) {
     const selectedDecisionId = storeDecision(selectedRow.id, selectedRow.candidate, batchDecision);
@@ -107,6 +154,14 @@ export async function processCandidateFromSignals(signals) {
         action: 'entry_skipped_max_positions',
         guardrails: { maxOpenPositions, openPositions: openPositionCount() },
       });
+      queueCandidateObservation({
+        candidate: selectedRow.candidate,
+        candidateId: selectedRow.id,
+        batchId,
+        stage: 'entry_decision',
+        action: 'entry_skipped_max_positions',
+        eligibilityReason: 'max_open_positions',
+      });
       return;
     }
     await handleApprovedBuy(selectedRow, batchDecision, batchId, rows, candidateId);
@@ -125,6 +180,15 @@ export async function processCandidateFromSignals(signals) {
         openPositions: openPositionCount(),
         maxOpenPositions,
       },
+    });
+    queueCandidateObservation({
+      candidate,
+      candidateId,
+      screeningEventId: candidate.screeningEventId,
+      batchId,
+      stage: 'entry_decision',
+      action: selectedRow ? 'entry_not_approved' : 'no_candidate_selected',
+      eligibilityReason: batchDecision.reason || 'entry_not_approved',
     });
   }
 }
@@ -148,6 +212,14 @@ export async function handleApprovedBuy(selectedRow, decision, batchId, rows = [
         refreshedAtMs: freshSelectedRow.candidate.executionRefresh?.refreshedAtMs,
       },
     });
+    queueCandidateObservation({
+      candidate: freshSelectedRow.candidate,
+      candidateId: freshSelectedRow.id,
+      batchId,
+      stage: 'execution_refresh',
+      action: 'entry_rejected_fresh_filters',
+      eligibilityReason: freshSelectedRow.candidate.filters?.primaryFailureCode || 'fresh_execution_guard_failed',
+    });
     await sendTelegram([
       '🛑 <b>Execution rejected on fresh check</b>',
       '',
@@ -156,6 +228,50 @@ export async function handleApprovedBuy(selectedRow, decision, batchId, rows = [
       `Failures: ${escapeHtml((freshSelectedRow.candidate.filters?.failures || []).join('; ') || 'fresh execution guard failed')}`,
     ].join('\n'));
     return;
+  }
+
+  // OHLCV entry confirmation — reject local-top entries
+  if (boolSetting('entry_confirm_enabled', false)) {
+    try {
+      const mint = freshSelectedRow.candidate.token.mint;
+      const ohlcv = await fetchBirdeyeOhlcv(mint, { interval: '1m', count: 15 });
+      const entrySignals = computeEntrySignals(ohlcv.candles || []);
+      if (!entrySignals.confirm) {
+        updateCandidateStatus(freshSelectedRow.id, 'entry_rejected_ohlcv');
+        logDecisionEvent({
+          batchId,
+          triggerCandidateId,
+          selectedRow: freshSelectedRow,
+          rows: executionRows,
+          decision,
+          mode,
+          action: 'entry_rejected_ohlcv',
+          guardrails: { entrySignals },
+        });
+        queueCandidateObservation({
+          candidate: freshSelectedRow.candidate,
+          candidateId: freshSelectedRow.id,
+          batchId,
+          stage: 'entry_confirmation',
+          action: 'entry_rejected_ohlcv',
+          eligibilityReason: entrySignals.reject_reason || 'ohlcv_entry_score_low',
+        });
+        console.log(`[entry-confirm] ${mint.slice(0, 8)} rejected: ${entrySignals.reject_reason || 'score=' + entrySignals.score} (RSI=${entrySignals.rsi?.toFixed(1)}, VWAP=${entrySignals.vwap_position}, vol=${entrySignals.volume_trend})`);
+        await sendTelegram([
+          '⏸️ <b>Entry rejected by OHLCV confirmation</b>',
+          '',
+          candidateSummary(freshSelectedRow.candidate, decision),
+          '',
+          `Reason: ${escapeHtml(entrySignals.reject_reason || 'low score')}`,
+          `Score: ${entrySignals.score}, RSI: ${entrySignals.rsi?.toFixed(1) || 'n/a'}`,
+        ].join('\n'));
+        return;
+      }
+      console.log(`[entry-confirm] ${mint.slice(0, 8)} confirmed: score=${entrySignals.score} RSI=${entrySignals.rsi?.toFixed(1)} VWAP=${entrySignals.vwap_position}`);
+    } catch (err) {
+      // Don't block entry on OHLCV fetch failure — log and proceed
+      console.log(`[entry-confirm] OHLCV check failed for ${freshSelectedRow.candidate.token.mint.slice(0, 8)}: ${err.message}, proceeding with entry`);
+    }
   }
 
   if (mode === 'dry_run') {
@@ -170,6 +286,15 @@ export async function handleApprovedBuy(selectedRow, decision, batchId, rows = [
       action: 'dry_run_entry',
       guardrails: { maxOpenPositions: numSetting('max_open_positions', 3), openPositions: openPositionCount() },
       execution: { positionId },
+    });
+    queueCandidateObservation({
+      candidate: freshSelectedRow.candidate,
+      candidateId: freshSelectedRow.id,
+      batchId,
+      positionId,
+      stage: 'entry_decision',
+      action: 'dry_run_entry',
+      eligibilityReason: 'dry_run_entry_opened',
     });
     await sendPositionOpen(positionId);
     return;
@@ -187,6 +312,14 @@ export async function handleApprovedBuy(selectedRow, decision, batchId, rows = [
       action: 'confirm_intent_created',
       guardrails: { maxOpenPositions: numSetting('max_open_positions', 3), openPositions: openPositionCount() },
       execution: { intentId },
+    });
+    queueCandidateObservation({
+      candidate: freshSelectedRow.candidate,
+      candidateId: freshSelectedRow.id,
+      batchId,
+      stage: 'entry_decision',
+      action: 'confirm_intent_created',
+      eligibilityReason: 'confirm_intent_created',
     });
     await sendTradeIntent(intentId, freshSelectedRow.candidate, decision);
     return;
@@ -206,6 +339,14 @@ export async function handleApprovedBuy(selectedRow, decision, batchId, rows = [
       action: 'live_entry_failed',
       guardrails: { maxOpenPositions: numSetting('max_open_positions', 3), openPositions: openPositionCount() },
       execution: { intentId, error: err.message },
+    });
+    queueCandidateObservation({
+      candidate: freshSelectedRow.candidate,
+      candidateId: freshSelectedRow.id,
+      batchId,
+      stage: 'entry_decision',
+      action: 'live_entry_failed',
+      eligibilityReason: err.message,
     });
     await sendTelegram([
       '🛑 <b>Live trade failed</b>',

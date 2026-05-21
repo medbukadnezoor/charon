@@ -13,6 +13,8 @@ import { trending } from '../signals/trending.js';
 import { executeLiveSell } from './router.js';
 import { sampleMarketCap } from '../enrichment/mcapSampler.js';
 import { recordDeployerObservation } from '../db/blacklist.js';
+import { fetchBirdeyeOhlcv } from '../enrichment/birdeye.js';
+import { computeCutoffSignals } from '../analysis/ohlcvSignals.js';
 
 export async function freshEntryMarket(mint, candidate) {
   const mcapSample = await sampleMarketCap({
@@ -228,6 +230,54 @@ export async function refreshPosition(position, {
 
   if (strat?.max_hold_ms > 0 && (now() - position.opened_at_ms) >= strat.max_hold_ms) {
     exitReason = 'MAX_HOLD';
+  }
+
+  // Soft cutoff: OHLCV-based hold/cut decision at configurable time
+  if (!exitReason && strat?.soft_cutoff_ms > 0) {
+    const posAge = now() - Number(position.opened_at_ms);
+    const cutoffChecks = Number(position.cutoff_checks || 0);
+    const maxRechecks = Number(strat.soft_cutoff_max_rechecks ?? 3);
+    const recheckMs = Number(strat.soft_cutoff_recheck_ms ?? 3600000);
+    const nextCutoffAt = Number(position.next_cutoff_at_ms || 0);
+    const cutoffTriggerMs = Number(strat.soft_cutoff_ms) + (cutoffChecks * recheckMs);
+
+    if (posAge >= cutoffTriggerMs && (nextCutoffAt === 0 || now() >= nextCutoffAt)) {
+      if (cutoffChecks >= maxRechecks) {
+        exitReason = 'SOFT_CUTOFF_MAX_RECHECKS';
+      } else {
+        try {
+          const ohlcvInterval = strat.soft_cutoff_ohlcv_interval || '5m';
+          const ohlcvCount = Number(strat.soft_cutoff_ohlcv_count ?? 30);
+          const ohlcv = await fetchBirdeyeOhlcv(position.mint, { interval: ohlcvInterval, count: ohlcvCount });
+          const signals = computeCutoffSignals(ohlcv.candles || [], {
+            entryMcap: Number(position.entry_mcap),
+            currentMcap: Number(mcap),
+            highWaterMcap: Number(highWaterMcap),
+          });
+
+          if (signals.recommendation === 'cut') {
+            exitReason = 'SOFT_CUTOFF_CUT';
+            console.log(`[soft-cutoff] ${position.id} CUT: RSI=${signals.rsi?.toFixed(1)} mom=${signals.momentum?.toFixed(3)} vol=${signals.volume_trend} struct=${signals.structure}`);
+          } else if (signals.recommendation === 'tighten') {
+            // Tighten SL to -30% or breakeven (whichever is tighter)
+            const tightenedSl = Math.max(-30, breakevenLockPercent);
+            db.prepare('UPDATE dry_run_positions SET effective_sl_percent = ?, cutoff_checks = ?, next_cutoff_at_ms = ? WHERE id = ?')
+              .run(tightenedSl, cutoffChecks + 1, now() + recheckMs, position.id);
+            console.log(`[soft-cutoff] ${position.id} TIGHTEN: SL moved to ${tightenedSl}%, recheck #${cutoffChecks + 1} in ${recheckMs / 60000}min`);
+          } else {
+            // Hold — schedule next recheck
+            db.prepare('UPDATE dry_run_positions SET cutoff_checks = ?, next_cutoff_at_ms = ? WHERE id = ?')
+              .run(cutoffChecks + 1, now() + recheckMs, position.id);
+            console.log(`[soft-cutoff] ${position.id} HOLD: RSI=${signals.rsi?.toFixed(1)} mom=${signals.momentum?.toFixed(3)}, recheck #${cutoffChecks + 1} in ${recheckMs / 60000}min`);
+          }
+        } catch (err) {
+          // On OHLCV fetch failure, schedule recheck without incrementing
+          db.prepare('UPDATE dry_run_positions SET next_cutoff_at_ms = ? WHERE id = ?')
+            .run(now() + recheckMs, position.id);
+          console.log(`[soft-cutoff] ${position.id} OHLCV fetch failed: ${err.message}, retry in ${recheckMs / 60000}min`);
+        }
+      }
+    }
   }
 
   if (!exitReason && breakevenArmed && pnlPercent <= breakevenLockPercent) {
