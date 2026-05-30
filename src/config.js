@@ -37,9 +37,75 @@ export const LIVE_MIN_SOL_RESERVE_LAMPORTS = Math.floor(Number(process.env.LIVE_
 export const DEFAULT_LLM_BASE_URL = 'http://127.0.0.1:8317/v1';
 export const DEFAULT_LLM_API_KEY = 'NO_API_KEY';
 export const DEFAULT_LLM_MODEL = 'gpt-5.5';
-export const DEFAULT_SHADOW_LLM_MODEL = 'gpt-5.4-mini';
+export const DEFAULT_SHADOW_LLM_BASE_URL = 'https://integrate.api.nvidia.com/v1';
+export const DEFAULT_SHADOW_LLM_MODEL = 'meta/llama-4-maverick-17b-128e-instruct';
+export const DEFAULT_MIMO_LLM_BASE_URL = 'https://token-plan-sgp.xiaomimimo.com/v1';
+export const DEFAULT_MIMO_LLM_MODEL = 'mimo-v2.5-pro';
+export const DEFAULT_GROQ_LLM_BASE_URL = 'https://api.groq.com/openai/v1';
+export const DEFAULT_GROQ_LLM_MODEL = 'llama-3.1-8b-instant';
+export const DEFAULT_MISTRAL_LLM_BASE_URL = 'https://api.mistral.ai/v1';
+export const DEFAULT_MISTRAL_LLM_MODEL = 'open-mistral-nemo';
+export const DEFAULT_GEMINI_LLM_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
+export const DEFAULT_GEMINI_LLM_MODEL = 'gemini-2.5-flash-lite';
+export const DEFAULT_CLIPROXY_LLM_BASE_URL = 'http://127.0.0.1:8317/v1';
+export const DEFAULT_CLIPROXY_LLM_MODEL = 'gpt-5.5';
+export const LLM_PROVIDER_ORDER = process.env.LLM_PROVIDER_ORDER || (SHADOW_MODE ? 'legacy,cliproxy' : 'mimo,cliproxy');
+export const MIMO_LLM_BASE_URL = process.env.MIMO_LLM_BASE_URL
+  || process.env.XIAOMIMIMO_BASE_URL
+  || process.env.MIMO_BASE_URL
+  || DEFAULT_MIMO_LLM_BASE_URL;
+export const MIMO_LLM_MODEL = process.env.MIMO_LLM_MODEL
+  || process.env.XIAOMIMIMO_MODEL
+  || process.env.MIMO_MODEL
+  || DEFAULT_MIMO_LLM_MODEL;
+export const MIMO_LLM_API_KEY = process.env.MIMO_LLM_API_KEY
+  || process.env.MIMO_API_KEY
+  || process.env.XIAOMIMIMO_API_KEY
+  || process.env.MIMO_TOKEN_PLAN_API_KEY
+  || process.env.TOKEN_PLAN_API_KEY
+  || '';
+export const GROQ_LLM_BASE_URL = process.env.GROQ_LLM_BASE_URL
+  || process.env.GROQ_BASE_URL
+  || DEFAULT_GROQ_LLM_BASE_URL;
+export const GROQ_LLM_MODEL = process.env.GROQ_LLM_MODEL
+  || process.env.GROQ_MODEL
+  || DEFAULT_GROQ_LLM_MODEL;
+export const GROQ_LLM_API_KEY = process.env.GROQ_LLM_API_KEY
+  || process.env.GROQ_API_KEY
+  || '';
+export const MISTRAL_LLM_BASE_URL = process.env.MISTRAL_LLM_BASE_URL
+  || process.env.MISTRAL_BASE_URL
+  || DEFAULT_MISTRAL_LLM_BASE_URL;
+export const MISTRAL_LLM_MODEL = process.env.MISTRAL_LLM_MODEL
+  || process.env.MISTRAL_MODEL
+  || DEFAULT_MISTRAL_LLM_MODEL;
+export const MISTRAL_LLM_API_KEY = process.env.MISTRAL_LLM_API_KEY
+  || process.env.MISTRAL_API_KEY
+  || '';
+export const GEMINI_LLM_BASE_URL = process.env.GEMINI_LLM_BASE_URL
+  || process.env.GEMINI_BASE_URL
+  || DEFAULT_GEMINI_LLM_BASE_URL;
+export const GEMINI_LLM_MODEL = process.env.GEMINI_LLM_MODEL
+  || process.env.GEMINI_MODEL
+  || DEFAULT_GEMINI_LLM_MODEL;
+export const GEMINI_LLM_API_KEY = process.env.GEMINI_LLM_API_KEY
+  || process.env.GEMINI_API_KEY
+  || '';
+const SHADOW_LLM_BASE_URL_OVERRIDE = process.env.SHADOW_LLM_BASE_URL || '';
+const SHADOW_LLM_POINTS_TO_CLIPROXY = /(^https?:\/\/)?(127\.0\.0\.1|localhost):8317(\/|$)/i.test(SHADOW_LLM_BASE_URL_OVERRIDE);
+export const CLIPROXY_LLM_BASE_URL = process.env.CLIPROXY_LLM_BASE_URL
+  || (SHADOW_LLM_POINTS_TO_CLIPROXY ? process.env.SHADOW_LLM_BASE_URL : '')
+  || DEFAULT_CLIPROXY_LLM_BASE_URL;
+export const CLIPROXY_LLM_MODEL = process.env.CLIPROXY_LLM_MODEL
+  || (SHADOW_LLM_POINTS_TO_CLIPROXY ? process.env.SHADOW_LLM_MODEL : '')
+  || DEFAULT_CLIPROXY_LLM_MODEL;
+export const CLIPROXY_LLM_API_KEY = process.env.CLIPROXY_LLM_API_KEY
+  || (SHADOW_LLM_POINTS_TO_CLIPROXY ? DEFAULT_LLM_API_KEY : '')
+  || (CLIPROXY_LLM_BASE_URL === DEFAULT_CLIPROXY_LLM_BASE_URL ? DEFAULT_LLM_API_KEY : '')
+  || process.env.LLM_API_KEY
+  || DEFAULT_LLM_API_KEY;
 export const LLM_BASE_URL = SHADOW_MODE
-  ? (process.env.SHADOW_LLM_BASE_URL || process.env.LLM_BASE_URL || DEFAULT_LLM_BASE_URL)
+  ? (process.env.SHADOW_LLM_BASE_URL || DEFAULT_SHADOW_LLM_BASE_URL)
   : (process.env.LLM_BASE_URL || DEFAULT_LLM_BASE_URL);
 const SHADOW_LLM_API_KEY = SHADOW_MODE
   && LLM_BASE_URL.includes('integrate.api.nvidia.com')
@@ -50,7 +116,7 @@ export const LLM_API_KEY = SHADOW_MODE
   ? (SHADOW_LLM_API_KEY || process.env.NVIDIA_API_KEY || process.env.LLM_API_KEY || DEFAULT_LLM_API_KEY)
   : (process.env.LLM_API_KEY || DEFAULT_LLM_API_KEY);
 export const LLM_MODEL = SHADOW_MODE
-  ? (process.env.SHADOW_LLM_MODEL || process.env.LLM_MODEL || DEFAULT_SHADOW_LLM_MODEL)
+  ? (process.env.SHADOW_LLM_MODEL || DEFAULT_SHADOW_LLM_MODEL)
   : (process.env.LLM_MODEL || DEFAULT_LLM_MODEL);
 export const LLM_REASONING_EFFORT = SHADOW_MODE
   ? (process.env.SHADOW_LLM_REASONING_EFFORT || '')

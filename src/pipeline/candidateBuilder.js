@@ -7,6 +7,7 @@ import { gmgnLink } from '../format.js';
 import { logScreeningEvent } from '../db/screeningEvents.js';
 import { sampleMarketCap } from '../enrichment/mcapSampler.js';
 import { isMintBlacklisted } from '../db/blacklist.js';
+import { applyRunnerExpansion } from './runnerExpansion.js';
 
 const CANDIDATE_FILTER_CONFIG_KEYS = [
   'min_fee_claim_sol',
@@ -24,6 +25,16 @@ const CANDIDATE_FILTER_CONFIG_KEYS = [
   'trending_min_swaps',
   'trending_max_rug_ratio',
   'trending_max_bundler_rate',
+  'runner_watch_expansion_enabled',
+  'runner_watch_expansion_min_mcap_usd',
+  'runner_watch_expansion_max_mcap_usd',
+  'runner_watch_expansion_min_holders',
+  'runner_watch_expansion_max_holders',
+  'runner_watch_expansion_min_saved_wallets',
+  'runner_watch_expansion_max_saved_wallets',
+  'runner_watch_expansion_min_gmgn_fee_sol',
+  'runner_watch_expansion_max_gmgn_fee_sol',
+  'runner_watch_expansion_min_source_count',
 ];
 
 function candidateFilterConfigSnapshot(strat) {
@@ -41,6 +52,8 @@ function candidateFilterProviderFields(candidate) {
     failureCodes: filters.failureCodes || [],
     primaryFailureCode: filters.primaryFailureCode || null,
     failureCount: filters.failureCodes?.length || 0,
+    tags: candidate.tags || candidate.signals?.tags || [],
+    runnerExpansion: filters.runnerExpansion || null,
     filter: {
       passed: Boolean(filters.passed),
       failureCodes: filters.failureCodes || [],
@@ -87,7 +100,7 @@ export function logCandidateFilterOutcome(candidate, strat) {
   const filters = candidate.filters || {};
   const action = filters.passed ? 'passed' : 'filtered';
   const reasonCode = filters.passed
-    ? 'candidate_filter_passed'
+    ? filters.runnerExpansion?.applied ? 'runner_watch_expansion_passed' : 'candidate_filter_passed'
     : filters.primaryFailureCode || 'candidate_filter_failed';
 
   try {
@@ -274,13 +287,14 @@ export function filterCandidate(candidate) {
     }
   }
 
-  return {
+  const baseFilters = {
     passed: failures.length === 0,
     failures,
     failureCodes,
     primaryFailureCode: failureCodes[0] || null,
     strategy: strat.id,
   };
+  return applyRunnerExpansion(candidate, baseFilters, strat);
 }
 
 export function compactSignalMeta(signalMeta = null) {
@@ -292,6 +306,7 @@ export function compactSignalMeta(signalMeta = null) {
     seenAtMs: signalMeta.seenAtMs ?? null,
   };
   if (signalMeta.hasFeeClaim != null) compact.hasFeeClaim = Boolean(signalMeta.hasFeeClaim);
+  if (Array.isArray(signalMeta.tags) && signalMeta.tags.length) compact.tags = [...new Set(signalMeta.tags.map(String))];
   return compact;
 }
 

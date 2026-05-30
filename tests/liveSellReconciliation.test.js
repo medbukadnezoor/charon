@@ -172,6 +172,7 @@ test('armed breakeven lock live exit sells the full position once without partia
   const result = await refreshPosition(position, {
     fetchGmgn: async () => null,
     fetchAsset: async () => ({ usdPrice: 0.001, mcap: 100_000 }),
+    estimateExecutableExit: async () => ({ outputAmount: '1000000000' }),
     executeSell: async (sellPosition, reason) => {
       sells.push({ tokenAmountRaw: sellPosition.token_amount_raw, reason });
       return { signature: 'sig-breakeven', outputAmount: '1000000000' };

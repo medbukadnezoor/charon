@@ -1,20 +1,22 @@
 import { now, json } from '../utils.js';
 import { numSetting } from '../db/settings.js';
 import { db } from '../db/connection.js';
-import { WSOL_MINT, LIVE_MIN_SOL_RESERVE_LAMPORTS } from '../config.js';
+import { SHADOW_MODE, WSOL_MINT, LIVE_MIN_SOL_RESERVE_LAMPORTS } from '../config.js';
 import { escapeHtml, fmtSol } from '../format.js';
 import { executeJupiterSwap, liveWalletBalanceLamports, fetchLiveTokenBalance } from '../liveExecutor.js';
 import { activeStrategy } from '../db/settings.js';
-import { createLivePosition, canOpenMorePositions, hasOpenPositionForMint, openPositionCount } from '../db/positions.js';
+import { createLivePosition, canOpenMorePositions, decisionPositionSizeSol, hasOpenPositionForMint, openPositionCount, resolveLiveSniperRisk } from '../db/positions.js';
 import { intentById } from '../db/intents.js';
 import { logDecisionEvent, logSameMintBlocked } from '../db/decisions.js';
 import { refreshCandidateForExecution } from './positions.js';
 import { candidateSummary } from '../telegram/format.js';
 import { updateCandidateStatus } from '../db/candidates.js';
 import { createTradeIntent } from '../db/intents.js';
+import { acquireLiveExecutionLock, attachLiveExecutionLockPosition, releaseLiveExecutionLock } from './liveLock.js';
 
 async function sendChatMessage(chatId, text, extra = {}) {
-  const { bot } = await import('../telegram/bot.js');
+  const { getBot } = await import('../telegram/bot.js');
+  const bot = getBot();
   return bot.sendMessage(chatId, text, extra);
 }
 
@@ -62,6 +64,13 @@ export async function sameMintExposureGuard(mint, {
   };
 }
 
+export class ShadowExecutionBlockedError extends Error {
+  constructor(fn) {
+    super(`[FATAL] ${fn} called in SHADOW_MODE - invariant breach, all upstream guards failed`);
+    this.name = 'ShadowExecutionBlockedError';
+  }
+}
+
 function logBlockedEntry({ batchId, triggerCandidateId, selectedRow, rows, decision, guard }) {
   logSameMintBlocked({
     batchId,
@@ -102,45 +111,90 @@ export function logAllowedSameMintGuardWarning({ batchId, triggerCandidateId, se
   });
 }
 
+export function liveBuyAmountLamports(decision, strat = activeStrategy()) {
+  const liveRisk = resolveLiveSniperRisk(decision, strat, { tradingMode: 'live' });
+  const resolvedDecision = liveRisk
+    ? { ...decision, resolved_risk: liveRisk.resolved_risk }
+    : decision;
+  return {
+    amountLamports: Math.floor(decisionPositionSizeSol(resolvedDecision, strat) * 1_000_000_000),
+    liveRisk,
+  };
+}
+
 export async function executeLiveBuy(selectedRow, decision, batchId, rows = [], triggerCandidateId = null) {
+  if (SHADOW_MODE) {
+    throw new ShadowExecutionBlockedError('executeLiveBuy');
+  }
   const mint = selectedRow.candidate.token.mint;
   const guard = await sameMintExposureGuard(mint);
   if (guard.blocked) {
     logBlockedEntry({ batchId, triggerCandidateId, selectedRow, rows, decision, guard });
     console.log(`[live] same mint blocked ${mint}: ${guard.reason}`);
-    return null;
+    return { action: 'same_mint_blocked', blocked: true };
   }
   logAllowedSameMintGuardWarning({ batchId, triggerCandidateId, selectedRow, rows, decision, guard });
   const strat = activeStrategy();
-  const amountLamports = Math.floor((strat.position_size_sol ?? numSetting('dry_run_buy_sol', 0.1)) * 1_000_000_000);
+  const { amountLamports, liveRisk } = liveBuyAmountLamports(decision, strat);
+  const executionDecision = liveRisk ? { ...decision, live_sniper_risk: liveRisk } : decision;
+  const amountSol = amountLamports / 1_000_000_000;
+  const liveLock = acquireLiveExecutionLock({ mint, amountSol });
+  if (!liveLock.acquired) {
+    logDecisionEvent({
+      batchId,
+      triggerCandidateId,
+      selectedRow,
+      rows,
+      decision: executionDecision,
+      mode: 'live',
+      action: 'global_live_lock_blocked',
+      guardrails: { liveLock },
+      execution: { blocked: true, reason: liveLock.reason },
+    });
+    console.log(`[live] global lock blocked ${mint}: ${liveLock.reason}`);
+    return { action: 'global_live_lock_blocked', blocked: true, reason: liveLock.reason };
+  }
   const balance = await liveWalletBalanceLamports();
   if (balance < amountLamports + LIVE_MIN_SOL_RESERVE_LAMPORTS) {
+    releaseLiveExecutionLock(liveLock.lockId, 'insufficient_balance');
     throw new Error(`Insufficient SOL balance. Need ${fmtSol((amountLamports + LIVE_MIN_SOL_RESERVE_LAMPORTS) / 1_000_000_000)} SOL including reserve.`);
   }
-  const swap = await executeJupiterSwap({
-    inputMint: WSOL_MINT,
-    outputMint: selectedRow.candidate.token.mint,
-    amount: amountLamports,
-  });
-  if (!swap.outputAmount) {
-    swap.outputAmount = await fetchLiveTokenBalance(selectedRow.candidate.token.mint) || swap.outputAmount;
+  let swap;
+  let positionId;
+  try {
+    swap = await executeJupiterSwap({
+      inputMint: WSOL_MINT,
+      outputMint: selectedRow.candidate.token.mint,
+      amount: amountLamports,
+    });
+    if (!swap.outputAmount) {
+      swap.outputAmount = await fetchLiveTokenBalance(selectedRow.candidate.token.mint) || swap.outputAmount;
+    }
+    positionId = createLivePosition(selectedRow.id, selectedRow.candidate, executionDecision, swap, `live_batch_${batchId}`);
+    attachLiveExecutionLockPosition(liveLock.lockId, positionId);
+  } catch (err) {
+    releaseLiveExecutionLock(liveLock.lockId, `buy_failed:${err.message}`);
+    throw err;
   }
-  const positionId = createLivePosition(selectedRow.id, selectedRow.candidate, decision, swap, `live_batch_${batchId}`);
   logDecisionEvent({
     batchId,
     triggerCandidateId,
     selectedRow,
     rows,
-    decision,
+    decision: executionDecision,
     mode: 'live',
     action: 'live_entry_executed',
-    guardrails: { balanceLamports: balance, amountLamports, minReserveLamports: LIVE_MIN_SOL_RESERVE_LAMPORTS },
-    execution: { positionId, swap },
+    guardrails: { balanceLamports: balance, amountLamports, minReserveLamports: LIVE_MIN_SOL_RESERVE_LAMPORTS, liveLock },
+    execution: { positionId, swap, liveRisk, lockId: liveLock.lockId },
   });
   await sendOpenedPosition(positionId);
+  return { action: 'live_entry_executed', positionId };
 }
 
 export async function executeLiveSell(position, reason) {
+  if (SHADOW_MODE) {
+    throw new ShadowExecutionBlockedError('executeLiveSell');
+  }
   const amount = position.token_amount_raw || position.token_amount_est;
   if (!amount || Number(amount) <= 0) throw new Error('Live position has no token amount to sell.');
   return executeJupiterSwap({
@@ -195,7 +249,7 @@ export async function executeConfirmedIntent(chatId, intentId) {
       guard,
     });
     const strat = activeStrategy();
-    const amountLamports = Math.floor((strat.position_size_sol ?? numSetting('dry_run_buy_sol', 0.1)) * 1_000_000_000);
+    const amountLamports = Math.floor(decisionPositionSizeSol(decision, strat) * 1_000_000_000);
     const balance = await liveWalletBalanceLamports();
     if (balance < amountLamports + LIVE_MIN_SOL_RESERVE_LAMPORTS) {
       db.prepare('UPDATE trade_intents SET status = ?, updated_at_ms = ? WHERE id = ?').run('rejected_insufficient_balance', now(), intentId);

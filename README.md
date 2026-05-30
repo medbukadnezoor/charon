@@ -52,10 +52,12 @@ pm2 save
 
 ```env
 TELEGRAM_BOT_TOKEN=
+SHADOW_TELEGRAM_BOT_TOKEN=
 TELEGRAM_CHAT_ID=
 ```
 
 `TELEGRAM_CHAT_ID` is the chat or group ID where Charon sends alerts and accepts commands. Only messages from this chat are processed.
+Shadow mode can use `SHADOW_TELEGRAM_BOT_TOKEN` for a separate Telegram bot. If it is unset, shadow mode falls back to `TELEGRAM_BOT_TOKEN`; primary mode always uses `TELEGRAM_BOT_TOKEN`.
 
 Signal server (required — see [Access](#access) above):
 
@@ -108,15 +110,25 @@ GMGN enriches candidates with holder count, liquidity, fee data, and social link
 
 ```env
 ENABLE_LLM=true
-LLM_BASE_URL=https://api.minimax.io/v1
-LLM_API_KEY=
-LLM_MODEL=MiniMax-M2.7
+LLM_PROVIDER_ORDER=mimo,cliproxy
+MIMO_LLM_BASE_URL=https://token-plan-sgp.xiaomimimo.com/v1
+MIMO_LLM_MODEL=mimo-v2.5-pro
+MIMO_LLM_API_KEY=
+CLIPROXY_LLM_BASE_URL=http://127.0.0.1:8317/v1
+CLIPROXY_LLM_MODEL=gpt-5.5
+CLIPROXY_LLM_API_KEY=NO_API_KEY
+LLM_BASE_URL=http://127.0.0.1:8317/v1
+LLM_API_KEY=NO_API_KEY
+LLM_MODEL=gpt-5.5
+LLM_REASONING_EFFORT=low
 LLM_TIMEOUT_MS=90000
 LLM_CANDIDATE_PICK_COUNT=10
 LLM_CANDIDATE_MAX_AGE_MS=600000
 ```
 
-`LLM_BASE_URL` accepts any OpenAI-compatible endpoint. The default is MiniMax M2.7, which is fast and cheap for this use case. OpenAI (`https://api.openai.com/v1`), Groq, and local Ollama endpoints all work — just set the matching `LLM_MODEL`.
+`LLM_PROVIDER_ORDER` controls failover order for all runtime LLM calls. The current primary route is Xiaomi MiMo token plan (`mimo-v2.5-pro` at `https://token-plan-sgp.xiaomimimo.com/v1`) when a MiMo key is configured, with VPS-local CLIProxyAPI on `127.0.0.1:8317` as fallback. Accepted MiMo key env names are `MIMO_LLM_API_KEY`, `MIMO_API_KEY`, `XIAOMIMIMO_API_KEY`, `MIMO_TOKEN_PLAN_API_KEY`, or `TOKEN_PLAN_API_KEY`.
+
+Legacy `LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL` remain supported by setting `LLM_PROVIDER_ORDER=legacy`. Shadow mode defaults to `LLM_PROVIDER_ORDER=legacy,cliproxy`, which means `SHADOW_LLM_BASE_URL` / `SHADOW_LLM_API_KEY` / `SHADOW_LLM_MODEL` are tried first and CLIProxyAPI is fallback. The current intended shadow endpoint is `https://integrate.api.nvidia.com/v1` with `meta/llama-4-maverick-17b-128e-instruct`.
 
 Set `ENABLE_LLM=false` to disable LLM globally. Individual strategies also have a `use_llm` flag — strategies with `use_llm: false` (e.g. `degen`) auto-approve any candidate that passes filters without calling the LLM.
 
@@ -220,7 +232,7 @@ SQLite/menu settings are hot-read by the bot. API keys, wallet key, RPC URLs, Ju
 - **Jupiter**: `fetchJupiterAsset` and `fetchJupiterHolders` are called per candidate and per position refresh cycle. At high throughput, you may hit 429s — Charon backs off automatically and retries from cache.
 - **Helius RPC**: Position monitoring polls every `POSITION_CHECK_MS` (default 10s). Use a paid Helius plan for live trading; free tier will throttle under load.
 - **Pump RPC fallback**: `PUMP_HELIUS_RPC_URL` / `PUMP_HELIUS_WS_URL` are optional Pump-only fallback endpoints. They are only eligible for Pump contexts such as fee logs and Pump transaction lookup; holder intelligence, wallet balance checks, and live execution stay on the general RPC route.
-- **LLM**: One API call per batch cycle (up to `LLM_CANDIDATE_PICK_COUNT` candidates per call). MiniMax M2.7 is the most cost-efficient default for this prompt shape.
+- **LLM**: One API call per batch cycle (up to `LLM_CANDIDATE_PICK_COUNT` candidates per call). Live defaults to MiMo token plan with CLIProxyAPI fallback; shadow defaults to the free shadow endpoint with CLIProxyAPI fallback.
 
 ## Notes
 

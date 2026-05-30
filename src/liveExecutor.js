@@ -6,6 +6,7 @@ import {
   JUPITER_SLIPPAGE_BPS,
   JUPITER_SWAP_BASE_URL,
   JSON_HEADERS,
+  LIVE_EXECUTION_DISABLED,
   SOLANA_PRIVATE_KEY,
 } from './config.js';
 import { rpcEndpointForContext } from './rpc/router.js';
@@ -21,6 +22,10 @@ function parseKeypair(secret) {
 }
 
 export function initLiveExecution() {
+  if (LIVE_EXECUTION_DISABLED) {
+    console.log('[shadow] live execution disabled by LIVE_EXECUTION_DISABLED');
+    return;
+  }
   if (!SOLANA_PRIVATE_KEY) return;
   try {
     liveWallet = parseKeypair(SOLANA_PRIVATE_KEY);
@@ -35,6 +40,10 @@ export function initLiveExecution() {
 
 export function liveWalletPubkey() {
   return liveWallet?.publicKey?.toBase58() || null;
+}
+
+export function hasLiveWallet() {
+  return liveWallet !== null;
 }
 
 export async function fetchLiveTokenBalance(mint) {
@@ -82,6 +91,15 @@ async function jupiterOrder({ inputMint, outputMint, amount }) {
     throw new Error(`Jupiter order failed: ${order.errorMessage || order.error || order.errorCode}`);
   }
   return order;
+}
+
+export async function estimateJupiterSwapOutput({ inputMint, outputMint, amount }) {
+  const order = await jupiterOrder({ inputMint, outputMint, amount });
+  return {
+    order,
+    inputAmount: String(amount),
+    outputAmount: String(order?.outAmount || order?.outputAmount || order?.totalOutputAmount || ''),
+  };
 }
 
 function orderTransactionBase64(order) {

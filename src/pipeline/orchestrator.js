@@ -19,15 +19,84 @@ import { escapeHtml } from '../format.js';
 import { effectiveLlmMinConfidence, shouldApproveEntry } from './entryApproval.js';
 import { queueCandidateObservation } from '../db/observations.js';
 import { enrichOverview, isEnabled as isInsightXEnabled, shouldSampleInsightX } from '../providers/insightx.js';
-import { fetchBirdeyeOhlcv } from '../enrichment/birdeye.js';
-import { computeEntrySignals } from '../analysis/ohlcvSignals.js';
+import { fetchEntryCandles } from '../enrichment/entryCandles.js';
+import { computeEntrySignals, computeStrictEntryShadowPolicy } from '../analysis/ohlcvSignals.js';
+import { startEntryWatchFromReject, startWatchDipFromLlmWatch } from './entryWatch.js';
 import { getActiveReentryWatch, markReentryTriggered } from '../db/reentry.js';
 import { db } from '../db/connection.js';
+import { recordScoutDecision, scoutDailyGuard, scoutPolicyEnabled } from '../db/scoutPolicy.js';
+import { decideScoutLlmAdmission, updateScoutLlmAdmissionBatch } from '../db/scoutLlmAdmissions.js';
 
 export const seenSignalCandidates = new Map();
 
 setDegenHandler(maybeProcessDegenCandidate);
 setCandidateHandler(processCandidateFromSignals);
+
+async function computeEntryConfirmation(mint) {
+  const ohlcv = await fetchEntryCandles(mint, { interval: '1m', count: 15, purpose: 'entry_confirm' });
+  const entrySignals = computeEntrySignals(ohlcv.candles || []);
+  return {
+    ohlcv,
+    entrySignals: {
+      ...entrySignals,
+      candle_source: ohlcv.source || 'unknown',
+      candle_count: ohlcv.candles?.length || 0,
+      fallback_trace: ohlcv.fallbackTrace || [],
+      pair_address: ohlcv.pairAddress || null,
+      token_ohlcv_count: ohlcv.tokenOhlcvCount ?? null,
+      pair_ohlcv_count: ohlcv.pairOhlcvCount ?? null,
+      token_tx_count: ohlcv.tokenTxCount ?? null,
+      gmgn_kline_count: ohlcv.gmgnKlineCount ?? (ohlcv.provider === 'gmgn' ? ohlcv.candles?.length || 0 : null),
+    },
+  };
+}
+
+function strictEntryShadowPolicyForCandidate(entrySignals, candidate) {
+  return computeStrictEntryShadowPolicy(entrySignals, {
+    minScore: numSetting('entry_confirm_shadow_min_score', 60),
+    minCandles: numSetting('entry_confirm_shadow_min_candles', 15),
+    rejectRsiUnavailable: boolSetting('entry_confirm_shadow_reject_rsi_unavailable', true),
+    maxRsi: numSetting('entry_confirm_shadow_max_rsi', 70),
+    maxMcapDisagreementPercent: numSetting('entry_confirm_shadow_max_mcap_disagreement_pct', 100),
+    mcapDisagreementPercent: candidate?.mcapSample?.disagreementPercent ?? null,
+  });
+}
+
+function recordStrictEntryShadow({
+  batchId,
+  triggerCandidateId,
+  selectedRow,
+  rows,
+  decision,
+  mode,
+  entrySignals,
+  context = {},
+}) {
+  if (!boolSetting('entry_confirm_shadow_strict_enabled', true)) return null;
+  const shadowPolicy = strictEntryShadowPolicyForCandidate(entrySignals, selectedRow?.candidate);
+  logDecisionEvent({
+    batchId,
+    triggerCandidateId,
+    selectedRow,
+    rows,
+    decision,
+    mode,
+    action: 'entry_confirm_strict_shadow',
+    guardrails: {
+      entrySignals,
+      strictEntryShadow: shadowPolicy,
+      originalAction: context.originalAction || null,
+      entrySource: context.entrySource || null,
+    },
+  });
+  console.log(`[entry-shadow] ${selectedRow.candidate.token.mint.slice(0, 8)} strict=${shadowPolicy.pass ? 'pass' : 'fail'} reasons=${shadowPolicy.reasons.join(',') || 'none'} score=${entrySignals.score} candles=${entrySignals.candle_count} RSI=${entrySignals.rsi?.toFixed?.(1) || 'n/a'} mcap_disagreement=${shadowPolicy.observed.mcapDisagreementPercent ?? 'n/a'}`);
+  return shadowPolicy;
+}
+
+export function shouldStartWatchDipForCurrentDecision(currentDecision, candidate) {
+  return String(currentDecision?.verdict || '').toUpperCase() === 'WATCH'
+    && Boolean(candidate?.filters?.passed);
+}
 
 export async function captureInsightXOverviewForCandidate(candidate, candidateId, {
   onlyAfterLlmPass = boolSetting('insightx_only_after_llm_pass', false),
@@ -87,10 +156,9 @@ export async function processCandidateFromSignals(signals) {
         let ohlcvConfirmed = true;
         if (boolSetting('entry_confirm_enabled', false)) {
           try {
-            const ohlcv = await fetchBirdeyeOhlcv(signals.mint, { interval: '1m', count: 15 });
-            const entrySignals = computeEntrySignals(ohlcv.candles || []);
+            const { entrySignals } = await computeEntryConfirmation(signals.mint);
             if (!entrySignals.confirm) {
-              console.log(`[reentry] ${signals.mint.slice(0, 8)} OHLCV rejected re-entry: ${entrySignals.reject_reason}`);
+              console.log(`[reentry] ${signals.mint.slice(0, 8)} OHLCV rejected re-entry: ${entrySignals.reject_reason} source=${entrySignals.candle_source} candles=${entrySignals.candle_count}`);
               ohlcvConfirmed = false;
             }
           } catch (err) {
@@ -134,6 +202,7 @@ export async function processCandidateFromSignals(signals) {
 
   const strat = activeStrategy();
   let rows, batchDecision, batchId;
+  let scoutAdmission = null;
 
   if (!strat.use_llm) {
     const selfRow = candidateById(candidateId);
@@ -152,9 +221,46 @@ export async function processCandidateFromSignals(signals) {
       raw: null,
     };
   } else {
+    const triggerRow = candidateById(candidateId);
+    scoutAdmission = triggerRow ? decideScoutLlmAdmission(triggerRow, { strategy: strat }) : null;
+    if (scoutAdmission?.active && !scoutAdmission.admitted) {
+      updateCandidateStatus(candidateId, 'scout_llm_throttle_skipped');
+      console.log(`[scout-llm-admission] ${candidate.token.mint.slice(0, 8)} skipped reason=${scoutAdmission.reason} score=${scoutAdmission.pre_score.toFixed(4)}`);
+      queueCandidateObservation({
+        candidate,
+        candidateId,
+        screeningEventId: candidate.screeningEventId,
+        stage: 'scout_llm_admission',
+        action: 'scout_llm_throttle_skipped',
+        eligibilityReason: `scout_llm_throttle:${scoutAdmission.reason}`,
+      });
+      logDecisionEvent({
+        batchId: null,
+        triggerCandidateId: candidateId,
+        selectedRow: triggerRow,
+        rows: triggerRow ? [triggerRow] : [],
+        decision: {
+          verdict: 'WATCH',
+          confidence: 0,
+          reason: `Scout LLM throttle skipped: ${scoutAdmission.reason}`,
+          risks: ['scout_llm_throttle_skip'],
+        },
+        mode: tradingMode(),
+        action: 'scout_llm_throttle_skipped',
+        guardrails: {
+          reason: scoutAdmission.reason,
+          preScore: scoutAdmission.pre_score,
+          materialChange: scoutAdmission.material_change,
+          budgetState: scoutAdmission.budget_state,
+          exploration: scoutAdmission.exploration,
+        },
+      });
+      return;
+    }
     rows = recentEligibleCandidates(numSetting('llm_candidate_pick_count', 10));
     batchDecision = await decideCandidateBatch(rows, candidateId);
     batchId = storeBatchDecision(candidateId, rows, batchDecision);
+    if (scoutAdmission?.admissionId) updateScoutLlmAdmissionBatch(scoutAdmission.admissionId, batchId);
   }
   const selectedRow = batchDecision.selected_row;
   const selectedThisCandidate = selectedRow?.id === candidateId;
@@ -189,6 +295,17 @@ export async function processCandidateFromSignals(signals) {
   }
 
   if (batchId) await sendBatchReveal(batchId, rows, batchDecision, candidateId);
+
+  if (shouldStartWatchDipForCurrentDecision(currentDecision, candidate)) {
+    await startWatchDipFromLlmWatch({
+      selectedRow: candidateById(candidateId),
+      decision: currentDecision,
+      batchId,
+      triggerCandidateId: candidateId,
+      rows,
+      mode: tradingMode(),
+    });
+  }
 
   const agentEnabled = boolSetting('agent_enabled', true);
   const confidenceThreshold = effectiveLlmMinConfidence(strat, numSetting('llm_min_confidence', 75));
@@ -248,9 +365,59 @@ export async function processCandidateFromSignals(signals) {
   }
 }
 
-export async function handleApprovedBuy(selectedRow, decision, batchId, rows = [], triggerCandidateId = null) {
+export async function handleApprovedBuy(selectedRow, decision, batchId, rows = [], triggerCandidateId = null, context = {}) {
   const mode = tradingMode();
+  const scoutGuard = scoutDailyGuard();
+  if (scoutGuard.blocked) {
+    logDecisionEvent({
+      batchId,
+      triggerCandidateId,
+      selectedRow,
+      rows,
+      decision,
+      mode,
+      action: scoutGuard.reason,
+      guardrails: {
+        scoutDailyGuard: scoutGuard,
+        entrySource: context.entrySource || 'immediate',
+      },
+    });
+    return { action: scoutGuard.reason, blocked: true };
+  }
+  if (!canOpenMorePositions()) {
+    const maxOpenPositions = Number(activeStrategy().max_open_positions ?? numSetting('max_open_positions', 3));
+    logDecisionEvent({
+      batchId,
+      triggerCandidateId,
+      selectedRow,
+      rows,
+      decision,
+      mode,
+      action: 'entry_skipped_max_positions',
+      guardrails: {
+        maxOpenPositions,
+        openPositions: openPositionCount(),
+        entrySource: context.entrySource || 'immediate',
+        entryWatchId: context.entryWatchId || null,
+      },
+    });
+    return { action: 'entry_skipped_max_positions' };
+  }
   const freshSelectedRow = await refreshCandidateForExecution(selectedRow);
+  if (scoutPolicyEnabled()) {
+    const scoutDecision = recordScoutDecision({
+      candidateRow: freshSelectedRow,
+      decision,
+      executionAction: 'entry_approved_pending_guards',
+      policyContext: decision.learned_policy_context || null,
+    });
+    if (scoutDecision) {
+      decision.scout_policy = scoutDecision;
+      decision.policy_version = scoutDecision.policy_version;
+      decision.policy_score = scoutDecision.score;
+      console.log(`[scout-policy] ${freshSelectedRow.candidate.token.mint.slice(0, 8)} policy_version=${scoutDecision.policy_version} policy_score=${scoutDecision.score.toFixed(4)} reward_pending`);
+    }
+  }
   const executionRows = rows.map(row => row.id === freshSelectedRow.id ? freshSelectedRow : row);
   if (!freshSelectedRow.candidate.filters?.passed) {
     updateCandidateStatus(freshSelectedRow.id, 'stale_rejected');
@@ -282,16 +449,40 @@ export async function handleApprovedBuy(selectedRow, decision, batchId, rows = [
       '',
       `Failures: ${escapeHtml((freshSelectedRow.candidate.filters?.failures || []).join('; ') || 'fresh execution guard failed')}`,
     ].join('\n'));
-    return;
+    return { action: 'entry_rejected_fresh_filters' };
   }
 
   // OHLCV entry confirmation — reject local-top entries
-  if (boolSetting('entry_confirm_enabled', false)) {
+  if (boolSetting('entry_confirm_enabled', false) && !context.skipOhlcvConfirmation) {
     try {
       const mint = freshSelectedRow.candidate.token.mint;
-      const ohlcv = await fetchBirdeyeOhlcv(mint, { interval: '1m', count: 15 });
-      const entrySignals = computeEntrySignals(ohlcv.candles || []);
+      const { entrySignals } = await computeEntryConfirmation(mint);
+      const strictShadow = recordStrictEntryShadow({
+        batchId,
+        triggerCandidateId,
+        selectedRow: freshSelectedRow,
+        rows: executionRows,
+        decision,
+        mode,
+        entrySignals,
+        context: {
+          originalAction: entrySignals.confirm ? 'entry_confirmed_ohlcv' : 'entry_rejected_ohlcv',
+          entrySource: context.entrySource || 'immediate',
+        },
+      });
       if (!entrySignals.confirm) {
+        if (!context.skipEntryWatchOnReject) {
+          const watch = await startEntryWatchFromReject({
+            selectedRow: freshSelectedRow,
+            decision,
+            batchId,
+            triggerCandidateId,
+            rows: executionRows,
+            mode,
+            entrySignals,
+          });
+          if (watch.start) return { action: 'entry_watch_started', entryWatchId: watch.watchId };
+        }
         updateCandidateStatus(freshSelectedRow.id, 'entry_rejected_ohlcv');
         logDecisionEvent({
           batchId,
@@ -301,7 +492,7 @@ export async function handleApprovedBuy(selectedRow, decision, batchId, rows = [
           decision,
           mode,
           action: 'entry_rejected_ohlcv',
-          guardrails: { entrySignals },
+          guardrails: { entrySignals, strictEntryShadow: strictShadow },
         });
         queueCandidateObservation({
           candidate: freshSelectedRow.candidate,
@@ -311,18 +502,19 @@ export async function handleApprovedBuy(selectedRow, decision, batchId, rows = [
           action: 'entry_rejected_ohlcv',
           eligibilityReason: entrySignals.reject_reason || 'ohlcv_entry_score_low',
         });
-        console.log(`[entry-confirm] ${mint.slice(0, 8)} rejected: ${entrySignals.reject_reason || 'score=' + entrySignals.score} (RSI=${entrySignals.rsi?.toFixed(1)}, VWAP=${entrySignals.vwap_position}, vol=${entrySignals.volume_trend})`);
+        console.log(`[entry-confirm] ${mint.slice(0, 8)} rejected: ${entrySignals.reject_reason || 'score=' + entrySignals.score} source=${entrySignals.candle_source} candles=${entrySignals.candle_count} (RSI=${entrySignals.rsi?.toFixed(1)}, VWAP=${entrySignals.vwap_position}, vol=${entrySignals.volume_trend})`);
         await sendTelegram([
           '⏸️ <b>Entry rejected by OHLCV confirmation</b>',
           '',
           candidateSummary(freshSelectedRow.candidate, decision),
           '',
           `Reason: ${escapeHtml(entrySignals.reject_reason || 'low score')}`,
+          `Candles: ${escapeHtml(entrySignals.candle_source)} (${entrySignals.candle_count})`,
           `Score: ${entrySignals.score}, RSI: ${entrySignals.rsi?.toFixed(1) || 'n/a'}`,
         ].join('\n'));
-        return;
+        return { action: 'entry_rejected_ohlcv', entrySignals };
       }
-      console.log(`[entry-confirm] ${mint.slice(0, 8)} confirmed: score=${entrySignals.score} RSI=${entrySignals.rsi?.toFixed(1)} VWAP=${entrySignals.vwap_position}`);
+      console.log(`[entry-confirm] ${mint.slice(0, 8)} confirmed: score=${entrySignals.score} source=${entrySignals.candle_source} candles=${entrySignals.candle_count} RSI=${entrySignals.rsi?.toFixed(1)} VWAP=${entrySignals.vwap_position}`);
     } catch (err) {
       // Don't block entry on OHLCV fetch failure — log and proceed
       console.log(`[entry-confirm] OHLCV check failed for ${freshSelectedRow.candidate.token.mint.slice(0, 8)}: ${err.message}, proceeding with entry`);
@@ -352,7 +544,7 @@ export async function handleApprovedBuy(selectedRow, decision, batchId, rows = [
       eligibilityReason: 'dry_run_entry_opened',
     });
     await sendPositionOpen(positionId);
-    return;
+    return { action: 'dry_run_entry', positionId };
   }
 
   if (mode === 'confirm') {
@@ -377,11 +569,12 @@ export async function handleApprovedBuy(selectedRow, decision, batchId, rows = [
       eligibilityReason: 'confirm_intent_created',
     });
     await sendTradeIntent(intentId, freshSelectedRow.candidate, decision);
-    return;
+    return { action: 'confirm_intent_created', intentId };
   }
 
   try {
-    await executeLiveBuy(freshSelectedRow, decision, batchId, executionRows, triggerCandidateId);
+    const liveResult = await executeLiveBuy(freshSelectedRow, decision, batchId, executionRows, triggerCandidateId);
+    return liveResult || { action: 'live_entry_skipped' };
   } catch (err) {
     const intentId = createTradeIntent(freshSelectedRow.id, freshSelectedRow.candidate, decision, mode, 'execution_failed');
     logDecisionEvent({
@@ -411,6 +604,7 @@ export async function handleApprovedBuy(selectedRow, decision, batchId, rows = [
       `Intent #${intentId} stored.`,
       `Error: ${escapeHtml(err.message)}`,
     ].join('\n'));
+    return { action: 'live_entry_failed', intentId, error: err.message };
   }
 }
 

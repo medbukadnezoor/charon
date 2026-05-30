@@ -2,22 +2,26 @@
  * Review Charon saved wallets with a secret-safe LLM batch prompt.
  *
  * Dry-run JSON mode prints only the request body and batch metadata. Live mode
- * requires LLM_API_KEY or XIAOMIMIMO_API_KEY to already exist in the process
- * environment and stores normalized review rows in Charon's wallet_llm_reviews
- * table.
+ * uses the shared Charon LLM provider order and stores normalized review rows
+ * in Charon's wallet_llm_reviews table.
  *
  * Usage:
  *   node scripts/llm_wallet_reviewer.js --dry-run-json --limit=3 --batch-size=3
  *   HARVESTER_DB_PATH=/opt/trading-data/harvester.db node scripts/llm_wallet_reviewer.js --dry-run-json
  *   node scripts/llm_wallet_reviewer.js --harvester-db=/path/to/harvester.db --dry-run-json
  *   node scripts/llm_wallet_reviewer.js --dry-run-json --loop --cycles=1 --wallets-per-cycle=15
- *   XIAOMIMIMO_API_KEY=... node scripts/llm_wallet_reviewer.js --limit=15
+ *   node scripts/llm_wallet_reviewer.js --limit=15
  */
 
 import Database from 'better-sqlite3';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import {
+  llmConfigured,
+  postChatCompletion as postProviderChatCompletion,
+  primaryLlmProvider,
+} from '../src/llm/providers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '..');
@@ -25,8 +29,7 @@ const REPO_ROOT = path.resolve(__dirname, '..');
 // Local dev default; override with HARVESTER_DB_PATH or --harvester-db for VPS/CI layouts.
 const DEFAULT_HARVESTER_DB = path.join(REPO_ROOT, 'tools/wallet-harvester/data/harvester.db');
 const DEFAULT_CHARON_DB = path.join(REPO_ROOT, 'charon.sqlite');
-const DEFAULT_LLM_BASE_URL = 'https://token-plan-sgp.xiaomimimo.com/v1';
-const DEFAULT_LLM_MODEL = 'mimo-v2.5-pro';
+const DEFAULT_LLM_REASONING_EFFORT = 'low';
 const DEFAULT_ARTIFACT_DIR = path.join(REPO_ROOT, 'reports/wallet-llm-reviews');
 const DEFAULT_LIMIT = 15;
 const DEFAULT_BATCH_SIZE = 10;
@@ -587,12 +590,15 @@ function buildMessages(wallets, targetMcap) {
 }
 
 function buildRequestBody(model, wallets, targetMcap) {
-  return {
+  const body = {
     model,
     temperature: 0.1,
     response_format: { type: 'json_object' },
     messages: buildMessages(wallets, targetMcap),
   };
+  const reasoningEffort = argValue('llm-reasoning-effort', process.env.LLM_REASONING_EFFORT || DEFAULT_LLM_REASONING_EFFORT);
+  if (reasoningEffort) body.reasoning_effort = reasoningEffort;
+  return body;
 }
 
 function chunkRows(rows, size) {
@@ -645,44 +651,24 @@ function normalizeReview(raw, allowedAddresses) {
   };
 }
 
-async function postChatCompletion(baseUrl, apiKey, body) {
-  const endpoint = new URL(`${baseUrl.replace(/\/+$/, '')}/chat/completions`);
-
+async function postWalletReviewCompletion(body) {
+  let lastError = null;
   for (let attempt = 0; attempt < 2; attempt++) {
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'api-key': apiKey,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(60_000),
-    });
-
-    if ((response.status === 429 || response.status >= 500) && attempt === 0) {
-      await sleep(RETRY_DELAY_MS);
-      continue;
-    }
-
-    const text = await response.text();
-    let json = null;
     try {
-      json = text ? JSON.parse(text) : null;
-    } catch {
-      json = null;
+      const { response, provider } = await postProviderChatCompletion(body, { timeout: 60_000 });
+      return { responseJson: response.data, provider };
+    } catch (err) {
+      lastError = err;
+      const retryable = err?.attempts?.some(item => /^http_(429|5\d\d)$/.test(String(item.errorClass || '')))
+        || /timeout/i.test(String(err?.message || ''));
+      if (retryable && attempt === 0) {
+        await sleep(RETRY_DELAY_MS);
+        continue;
+      }
+      throw err;
     }
-
-    if (!response.ok) {
-      const code = cleanText(json?.error?.code || response.statusText || 'request_failed');
-      const message = cleanText(json?.error?.message || 'provider returned a non-OK response');
-      throw new Error(`LLM request failed: ${response.status} ${code}: ${message}`);
-    }
-
-    if (!json) throw new Error('LLM response was not JSON');
-    return json;
   }
-
-  throw new Error('LLM request failed after retry');
+  throw lastError || new Error('LLM request failed after retry');
 }
 
 function insertReviews(charonDb, reviews, model, batchId, rawJson) {
@@ -743,12 +729,13 @@ function parseOptions() {
   const limit = Math.floor(walletsPerCycle || argNumber('limit', DEFAULT_LIMIT));
   const intervalMinutes = argNumber('interval-minutes', DEFAULT_INTERVAL_MINUTES);
   const cycles = argOptionalNumber('cycles');
+  const provider = primaryLlmProvider({ includeUnavailable: true });
 
   return {
     harvesterDbPath: path.resolve(argValue('harvester-db', process.env.HARVESTER_DB_PATH || DEFAULT_HARVESTER_DB)),
     charonDbPath: path.resolve(argValue('charon-db', process.env.CHARON_DB_PATH || DEFAULT_CHARON_DB)),
-    baseUrl: argValue('llm-base-url', process.env.LLM_BASE_URL || DEFAULT_LLM_BASE_URL),
-    model: argValue('llm-model', process.env.LLM_MODEL || DEFAULT_LLM_MODEL),
+    baseUrl: argValue('llm-base-url', provider?.baseUrl || ''),
+    model: argValue('llm-model', provider?.model || ''),
     limit,
     walletsPerCycle: walletsPerCycle ? Math.floor(walletsPerCycle) : null,
     batchSize: Math.floor(argNumber('batch-size', DEFAULT_BATCH_SIZE)),
@@ -841,21 +828,22 @@ function summarizeLiveCycle(options, plan, artifactRows, artifactPaths, nextWake
   };
 }
 
-async function runLiveCycle(databases, options, apiKey, cycleNumber, nextWakeAtIso = null) {
+async function runLiveCycle(databases, options, cycleNumber, nextWakeAtIso = null) {
   const plan = buildCyclePlan(databases, options, cycleNumber);
   let inserted = 0;
   const artifactRows = [];
   const artifactBatchIds = [];
 
   for (const batch of plan.batches) {
-    const responseJson = await postChatCompletion(options.baseUrl, apiKey, batch.request_body);
+    const { responseJson, provider } = await postWalletReviewCompletion(batch.request_body);
     const reviewPayload = extractReviewPayload(responseJson);
     const allowedAddresses = new Set(batch.wallet_addresses);
     const reviews = (Array.isArray(reviewPayload.reviews) ? reviewPayload.reviews : [])
       .map(review => normalizeReview(review, allowedAddresses))
       .filter(Boolean);
 
-    const reviewedAtMs = insertReviews(databases.charonDb, reviews, options.model, batch.batch_id, JSON.stringify(responseJson));
+    const reviewModel = provider?.model || options.model;
+    const reviewedAtMs = insertReviews(databases.charonDb, reviews, reviewModel, batch.batch_id, JSON.stringify(responseJson));
     artifactBatchIds.push(batch.batch_id);
     artifactRows.push(...reviews.map(review => ({
       ...review,
@@ -920,7 +908,7 @@ async function sleepUntilNextCycle(ms, state) {
   }
 }
 
-async function runLoop(databases, options, apiKey) {
+async function runLoop(databases, options) {
   const state = { stopRequested: false };
   installStopHandlers(state);
   let cycleNumber = 0;
@@ -928,7 +916,7 @@ async function runLoop(databases, options, apiKey) {
   while (!state.stopRequested && (!options.cycles || cycleNumber < options.cycles)) {
     cycleNumber += 1;
     const shouldRunAnother = !options.cycles || cycleNumber < options.cycles;
-    const summary = await runLiveCycle(databases, options, apiKey, cycleNumber, null);
+    const summary = await runLiveCycle(databases, options, cycleNumber, null);
     const nextWakeAtMs = shouldRunAnother ? Date.now() + options.intervalMs : null;
     summary.next_wake_time = nextWakeAtMs ? new Date(nextWakeAtMs).toISOString() : null;
     console.log(`Loop cycle summary: ${JSON.stringify(summary)}`);
@@ -955,15 +943,11 @@ async function main() {
     }
   }
 
-  const apiKey = options.dryRunJson ? null : process.env.LLM_API_KEY || process.env.XIAOMIMIMO_API_KEY;
-  if (!options.dryRunJson && !apiKey) {
-    process.stderr.write('LLM_API_KEY or XIAOMIMIMO_API_KEY is not set; run with --dry-run-json or export one of those variables\n');
-    process.exitCode = 1;
-    return;
-  }
-
   const databases = openDatabases(options);
   try {
+    if (!options.dryRunJson && !llmConfigured()) {
+      throw new Error('LLM disabled or no configured LLM provider has a usable key.');
+    }
     if (!options.dryRunJson) createReviewTable(databases.charonDb);
 
     if (options.dryRunJson) {
@@ -974,11 +958,11 @@ async function main() {
     }
 
     if (options.loop) {
-      await runLoop(databases, options, apiKey);
+      await runLoop(databases, options);
       return;
     }
 
-    await runLiveCycle(databases, options, apiKey, 1);
+    await runLiveCycle(databases, options, 1);
   } finally {
     databases.harvesterDb.close();
     databases.charonDb.close();

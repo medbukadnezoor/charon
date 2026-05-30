@@ -1,5 +1,5 @@
-import { bot } from './bot.js';
-import { TELEGRAM_CHAT_ID, TELEGRAM_TOPIC_ID } from '../config.js';
+import { getBot } from './bot.js';
+import { SHADOW_MODE, TELEGRAM_CHAT_ID, TELEGRAM_TOPIC_ID } from '../config.js';
 import { now, json } from '../utils.js';
 import { db } from '../db/connection.js';
 import { escapeHtml, fmtPct, fmtSol, fmtUsd, short, gmgnLink } from '../format.js';
@@ -10,7 +10,10 @@ import { batchById } from '../db/decisions.js';
 import { fetchWalletPnl } from '../enrichment/wallets.js';
 
 export async function sendTelegram(text, extra = {}) {
-  return bot.sendMessage(TELEGRAM_CHAT_ID, text, {
+  const message = SHADOW_MODE && !String(text).startsWith('[SHADOW]')
+    ? `[SHADOW]\n${text}`
+    : text;
+  return getBot().sendMessage(TELEGRAM_CHAT_ID, message, {
     parse_mode: 'HTML',
     disable_web_page_preview: true,
     ...(TELEGRAM_TOPIC_ID ? { message_thread_id: Number(TELEGRAM_TOPIC_ID) } : {}),
@@ -46,7 +49,7 @@ export async function sendBatchReveal(batchId, rows, decision, triggerCandidateI
 
 export async function sendBatch(chatId, batchId) {
   const batch = batchById(batchId);
-  if (!batch) return bot.sendMessage(chatId, 'Batch not found.');
+  if (!batch) return getBot().sendMessage(chatId, 'Batch not found.');
   const lines = [
     '🧭 <b>Screening Batch</b>',
     '',
@@ -60,7 +63,7 @@ export async function sendBatch(chatId, batchId) {
     callback_data: `cand:${row.id}`,
   }]));
   keyboard.push([{ text: 'Positions', callback_data: 'menu:positions' }]);
-  return bot.sendMessage(chatId, lines.filter(Boolean).join('\n'), {
+  return getBot().sendMessage(chatId, lines.filter(Boolean).join('\n'), {
     parse_mode: 'HTML',
     disable_web_page_preview: true,
     reply_markup: { inline_keyboard: keyboard },
@@ -123,7 +126,7 @@ export async function sendPnl(chatId, query = null) {
       const { editMenuMessage } = await import('./callbacks.js');
       return editMenuMessage(query, text, navKeyboard());
     }
-    return bot.sendMessage(chatId, text, { parse_mode: 'HTML' });
+    return getBot().sendMessage(chatId, text, { parse_mode: 'HTML' });
   }
   const chunks = [];
   for (const wallet of wallets) {
@@ -161,11 +164,11 @@ export async function sendPnl(chatId, query = null) {
     await editMenuMessage(query, pages[0], pages.length === 1 ? navKeyboard() : opts);
     for (let i = 1; i < pages.length; i++) {
       const extra = i === pages.length - 1 ? { ...opts, ...navKeyboard() } : opts;
-      await bot.sendMessage(chatId, pages[i], extra);
+      await getBot().sendMessage(chatId, pages[i], extra);
     }
     return;
   }
   for (const page of pages) {
-    await bot.sendMessage(chatId, page, opts);
+    await getBot().sendMessage(chatId, page, opts);
   }
 }

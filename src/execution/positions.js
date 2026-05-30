@@ -4,7 +4,7 @@ import { db } from '../db/connection.js';
 import { firstPositiveNumber } from '../utils.js';
 import { fetchGmgnTokenInfo } from '../enrichment/gmgn.js';
 import { fetchJupiterAsset, fetchJupiterHolders, fetchJupiterChartContext, fetchJupiterWalletPnl } from '../enrichment/jupiter.js';
-import { fetchLiveTokenBalance, liveWalletPubkey } from '../liveExecutor.js';
+import { estimateJupiterSwapOutput, fetchLiveTokenBalance, liveWalletPubkey } from '../liveExecutor.js';
 import { fetchSavedWalletExposure } from '../enrichment/wallets.js';
 import { filterCandidate } from '../pipeline/candidateBuilder.js';
 import { openPositions } from '../db/positions.js';
@@ -17,7 +17,9 @@ import { fetchBirdeyeOhlcv } from '../enrichment/birdeye.js';
 import { computeCutoffSignals } from '../analysis/ohlcvSignals.js';
 import { insertReentryWatch, pruneReentryWatches } from '../db/reentry.js';
 import { buildCutoffLlmPayload } from '../pipeline/llm.js';
-import { LLM_BASE_URL, LLM_API_KEY, LLM_MODEL, LLM_TIMEOUT_MS } from '../config.js';
+import { INSTANCE_ID, LLM_TIMEOUT_MS, WSOL_MINT } from '../config.js';
+import { postChatCompletion } from '../llm/providers.js';
+import { getLiveLockDb, releaseLiveExecutionLock } from './liveLock.js';
 
 async function callCutoffLlm(position, { ohlcvCandles, cutoffSignals, pnlPercent, holdTimeMin }) {
   try {
@@ -27,24 +29,16 @@ async function callCutoffLlm(position, { ohlcvCandles, cutoffSignals, pnlPercent
       pnlPercent,
       holdTimeMin,
     });
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), Math.min(LLM_TIMEOUT_MS, 30000));
-    const resp = await fetch(`${LLM_BASE_URL}/chat/completions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${LLM_API_KEY}` },
-      body: JSON.stringify({
-        model: LLM_MODEL,
-        temperature: 0.1,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: JSON.stringify(userPayload) },
-        ],
-      }),
-      signal: controller.signal,
+    const { response } = await postChatCompletion({
+      temperature: 0.1,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: JSON.stringify(userPayload) },
+      ],
+    }, {
+      timeout: Math.min(LLM_TIMEOUT_MS, 30000),
     });
-    clearTimeout(timeout);
-    if (!resp.ok) return null;
-    const data = await resp.json();
+    const data = response.data;
     const text = data.choices?.[0]?.message?.content || '';
     const match = text.match(/\{[\s\S]*\}/);
     if (!match) return null;
@@ -192,6 +186,23 @@ export function classifyLiveSellReconciliation(balanceRaw, dustThresholdRaw) {
   };
 }
 
+function executableExitEstimateSol(estimate) {
+  const outputLamports = Number(estimate?.outputAmount ?? estimate?.outputLamports ?? estimate?.outAmount ?? NaN);
+  if (Number.isFinite(outputLamports) && outputLamports >= 0) return outputLamports / 1_000_000_000;
+  const outputSol = Number(estimate?.outputSol ?? estimate?.receivedSol ?? estimate?.estimatedSol ?? NaN);
+  return Number.isFinite(outputSol) && outputSol >= 0 ? outputSol : null;
+}
+
+async function estimateLiveExecutableExit(position) {
+  const amount = position.token_amount_raw || position.token_amount_est;
+  if (!amount || Number(amount) <= 0) throw new Error('Live position has no token amount to estimate.');
+  return estimateJupiterSwapOutput({
+    inputMint: position.mint,
+    outputMint: WSOL_MINT,
+    amount,
+  });
+}
+
 function numericOrFallback(value, fallback = 0) {
   const num = Number(value);
   return Number.isFinite(num) ? num : fallback;
@@ -212,6 +223,7 @@ export async function refreshPosition(position, {
   fetchGmgn = fetchGmgnTokenInfo,
   fetchMcapSample = sampleMarketCap,
   executeSell = executeLiveSell,
+  estimateExecutableExit = estimateLiveExecutableExit,
   fetchTokenBalance = fetchLiveTokenBalance,
   sendReconciliationAlert = null,
 } = {}) {
@@ -240,6 +252,13 @@ export async function refreshPosition(position, {
   let pnlPercent = scopedPnl.pnlPercent;
   let pnlSol = scopedPnl.pnlSol;
   const tpHit = pnlPercent >= Number(position.tp_percent);
+  const hasPersistedTrailingArm = position.trailing_arm_percent !== null
+    && position.trailing_arm_percent !== undefined
+    && position.trailing_arm_percent !== '';
+  const trailingArmPercent = hasPersistedTrailingArm && Number.isFinite(Number(position.trailing_arm_percent))
+    ? Number(position.trailing_arm_percent)
+    : Number(position.tp_percent);
+  const trailingArmHit = pnlPercent >= trailingArmPercent;
   const hasPersistedEffectiveSl = position.effective_sl_percent !== null
     && position.effective_sl_percent !== undefined
     && position.effective_sl_percent !== '';
@@ -247,7 +266,7 @@ export async function refreshPosition(position, {
     ? Number(position.effective_sl_percent)
     : Number(position.sl_percent);
   const slHit = pnlPercent <= effectiveSlPercent;
-  const trailingArmed = position.trailing_armed || (position.trailing_enabled && tpHit);
+  const trailingArmed = position.trailing_armed || (position.trailing_enabled && trailingArmHit);
   const trailDrop = highWaterMcap > 0 ? (Number(mcap) / highWaterMcap - 1) * 100 : 0;
   const trailingHit = trailingArmed && position.trailing_enabled && trailDrop <= -Math.abs(Number(position.trailing_percent));
   let exitReason = null;
@@ -255,14 +274,29 @@ export async function refreshPosition(position, {
 
   // Max hold time check
   const strat = strategyById(position.strategy_id);
-  const breakevenAfterProfitPercent = numericOrFallback(strat?.breakeven_after_profit_percent, 0);
+  let snapshot = {};
+  try {
+    snapshot = JSON.parse(position.snapshot_json || '{}');
+  } catch {
+    snapshot = {};
+  }
+  const decisionOverrides = snapshot?.decision || {};
+  const riskOverrides = snapshot?.resolved_risk || {};
+  const breakevenAfterProfitPercent = numericOrFallback(
+    riskOverrides.breakeven_after_profit_percent,
+    numericOrFallback(decisionOverrides.suggested_breakeven_after_profit_percent, numericOrFallback(strat?.breakeven_after_profit_percent, 0)),
+  );
   const existingBreakevenLockPercent = numericOrFallback(position.breakeven_lock_percent, NaN);
-  const configuredBreakevenLockPercent = numericOrFallback(strat?.breakeven_lock_percent, 0);
+  const configuredBreakevenLockPercent = numericOrFallback(
+    riskOverrides.breakeven_lock_percent,
+    numericOrFallback(decisionOverrides.suggested_breakeven_lock_percent, numericOrFallback(strat?.breakeven_lock_percent, 0)),
+  );
   const breakevenLockPercent = Number.isFinite(existingBreakevenLockPercent)
     ? existingBreakevenLockPercent
     : configuredBreakevenLockPercent;
   let breakevenArmed = Boolean(position.breakeven_armed);
   let breakevenArmedAtMs = position.breakeven_armed_at_ms ?? null;
+  let deferredBreakevenExit = null;
 
   if (!breakevenArmed && breakevenAfterProfitPercent > 0 && pnlPercent >= breakevenAfterProfitPercent) {
     breakevenArmed = true;
@@ -340,8 +374,50 @@ export async function refreshPosition(position, {
     }
   }
 
-  if (!exitReason && breakevenArmed && pnlPercent <= breakevenLockPercent) {
+  if (!exitReason && slHit) {
+    exitReason = 'SL';
+  } else if (!exitReason && breakevenArmed && pnlPercent <= breakevenLockPercent) {
     exitReason = 'BREAKEVEN_LOCK';
+  }
+
+  if (
+    exitReason === 'BREAKEVEN_LOCK'
+    && autoExit
+    && position.execution_mode === 'live'
+    && typeof estimateExecutableExit === 'function'
+  ) {
+    try {
+      const estimate = await estimateExecutableExit(position, exitReason);
+      const estimatedSol = executableExitEstimateSol(estimate);
+      const breakevenFloorSol = Number(position.size_sol) * (1 + breakevenLockPercent / 100);
+      if (estimatedSol != null && Number.isFinite(breakevenFloorSol) && estimatedSol < breakevenFloorSol) {
+        deferredBreakevenExit = {
+          at_ms: now(),
+          reason: 'executable_estimate_below_floor',
+          floor_sol: breakevenFloorSol,
+          estimated_sol: estimatedSol,
+          estimate,
+          mcap_pnl_percent: pnlPercent,
+          mcap,
+        };
+        db.prepare('UPDATE dry_run_positions SET snapshot_json = ? WHERE id = ?')
+          .run(json({ ...snapshot, breakeven_exit_deferred: deferredBreakevenExit }), position.id);
+        console.log(`[position] ${position.id} breakeven lock deferred: executable estimate ${estimatedSol.toFixed(6)} SOL below floor ${breakevenFloorSol.toFixed(6)} SOL`);
+        exitReason = null;
+      }
+    } catch (err) {
+      deferredBreakevenExit = {
+        at_ms: now(),
+        reason: 'executable_estimate_failed',
+        error: err.message,
+        mcap_pnl_percent: pnlPercent,
+        mcap,
+      };
+      db.prepare('UPDATE dry_run_positions SET snapshot_json = ? WHERE id = ?')
+        .run(json({ ...snapshot, breakeven_exit_deferred: deferredBreakevenExit }), position.id);
+      console.log(`[position] ${position.id} breakeven lock deferred: executable estimate failed: ${err.message}`);
+      exitReason = null;
+    }
   }
 
   // Partial TP check
@@ -371,8 +447,7 @@ export async function refreshPosition(position, {
 
   // Standard exit checks
   if (!exitReason) {
-    if (slHit) exitReason = 'SL';
-    else if (tpHit && !position.trailing_enabled && breakevenAfterProfitPercent <= 0) exitReason = 'TP';
+    if (tpHit && !position.trailing_enabled && breakevenAfterProfitPercent <= 0) exitReason = 'TP';
     else if (trailingHit) exitReason = 'TRAILING_TP';
   }
 
@@ -478,6 +553,7 @@ export async function refreshPosition(position, {
         exit_mcap: mcap,
         exit_price: price,
         exit_signature: sell.signature,
+        deferredBreakevenExit,
       };
     }
     db.prepare(`
@@ -490,6 +566,7 @@ export async function refreshPosition(position, {
       INSERT INTO dry_run_trades (position_id, mint, side, at_ms, price, mcap, size_sol, token_amount_est, reason, payload_json)
       VALUES (?, ?, 'sell', ?, ?, ?, ?, ?, ?, ?)
     `).run(position.id, position.mint, now(), price, mcap, position.size_sol, position.token_amount_est, exitReason, json({ pnlPercent: finalPnlPercent, pnlSol: finalPnlSol, receivedSol: receivedSol ?? null, sell, reconciliation, jupiterPnl, mcapSample }));
+    releaseLiveExecutionLockForPosition(position, exitReason);
     recordHardLossObservation(position, { exitReason, pnlPercent: finalPnlPercent, pnlSol: finalPnlSol, mcapSample });
     closed = true;
   } else if (exitReason && autoExit) {
@@ -514,6 +591,7 @@ export async function refreshPosition(position, {
       INSERT INTO dry_run_trades (position_id, mint, side, at_ms, price, mcap, size_sol, token_amount_est, reason, payload_json)
       VALUES (?, ?, 'sell', ?, ?, ?, ?, ?, ?, ?)
     `).run(position.id, position.mint, now(), price, mcap, position.size_sol, position.token_amount_est, exitReason, json({ pnlPercent: finalPnlPercent, pnlSol: finalPnlSol, drySlippagePct, dryFeePct, mcapSample }));
+    releaseLiveExecutionLockForPosition(position, exitReason);
     recordHardLossObservation(position, { exitReason, pnlPercent: finalPnlPercent, pnlSol: finalPnlSol, mcapSample });
     closed = true;
   }
@@ -548,9 +626,12 @@ export async function refreshPosition(position, {
     high_water_mcap: highWaterMcap,
     high_water_price: highWaterPrice,
     effective_sl_percent: effectiveSlPercent,
+    trailing_arm_percent: trailingArmPercent,
+    trailing_armed: trailingArmed ? 1 : 0,
     breakeven_armed: breakevenArmed ? 1 : 0,
     breakeven_armed_at_ms: breakevenArmedAtMs,
     breakeven_lock_percent: breakevenLockPercent,
+    deferredBreakevenExit,
     pnlPercent: finalPnlPercent,
     pnl_percent: finalPnlPercent,
     pnlSol: finalPnlSol,
@@ -560,6 +641,29 @@ export async function refreshPosition(position, {
     exit_mcap: closed ? mcap : position.exit_mcap,
     exit_price: closed ? price : position.exit_price,
   };
+}
+
+export function releaseLiveExecutionLockForPosition(position, reason) {
+  try {
+    if (position?.execution_mode !== 'live') return false;
+    const { id } = (liveLockRow(position) || {});
+    if (id) releaseLiveExecutionLock(id, `position_closed:${reason || 'closed'}`);
+    return Boolean(id);
+  } catch (err) {
+    console.log(`[live-lock] release failed for position ${position?.id}: ${err.message}`);
+    return false;
+  }
+}
+
+function liveLockRow(position) {
+  return getLiveLockDb().prepare(`
+    SELECT id FROM live_execution_locks
+    WHERE position_id = ?
+      AND mint = ?
+      AND lane = ?
+      AND status = 'open'
+    LIMIT 1
+  `).get(position.id, position.mint, INSTANCE_ID);
 }
 
 export async function monitorPositions() {

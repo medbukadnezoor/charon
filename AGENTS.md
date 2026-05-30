@@ -36,8 +36,15 @@ Owner-approved exceptions (cumulative):
 - PM2 start/stop/restart of `charon` is allowed via `safe_restart_charon.js` only
 - PM2 start/stop/restart of `cli-proxy-api` is allowed (separate from charon, no position check needed)
 - `src/` code changes are allowed on `feat/ohlcv-entry-confirmation-soft-cutoff` branch
+- `scripts/backup_vps_trading_data_to_mac.sh` may SSH to `moonbags` and copy
+  only allowlisted `/opt/trading-data` DB/log artifacts into local Mac snapshot
+  folders. It must not read or copy `.env`, auth files, wallet/private keys,
+  Telegram/provider keys, or CLI proxy configs. Remote cleanup is allowed only
+  through its `--prune-remote-backups` flag after hash-verified local copy, and
+  only for inactive backup/pre-migration DB files; it must never delete active
+  DBs, WAL/SHM files, logs, secrets, or directories.
 
-## Current State (as of 2026-05-21)
+## Current State (as of 2026-05-28)
 
 ### Active branch
 
@@ -45,26 +52,69 @@ Owner-approved exceptions (cumulative):
 
 ### Live strategy: sniper
 
+Live epoch marker: `TP60_SL20_WATCH_DIP_SCOUT_20260528`.
+The owner marked position id `47` as the start of this current live behavior.
+At marking time, the latest live position was id `46`, so use
+`dry_run_positions.execution_mode='live' AND id >= 47` as the cohort boundary
+for this config. The marker is also stored in primary DB settings as:
+
+- `live_config_epoch=TP60_SL20_WATCH_DIP_SCOUT_20260528`
+- `live_config_start_position_id=47`
+- `live_config_epoch_json=...`
+
 | Parameter | Value |
 |-----------|-------|
 | trading_mode | **live** |
-| position_size_sol | 0.03 |
-| tp_percent | +300% |
-| sl_percent | -60% |
+| position_size_sol | 0.02 |
+| entry behavior | LLM `WATCH` → `llm_watch_dip` watchlist → delayed BUY only after pullback/recovery trigger |
+| watch-dip tp_percent | +60% |
+| watch-dip sl_percent | -20% |
 | dry_run_slippage_pct | 15% (price impact simulation) |
 | dry_run_fee_pct | 0.5% |
 | trailing_enabled | false |
+| watch-dip trailing_enabled | false |
+| watch-dip breakeven | disabled |
 | max_top20_holder_percent | 45% |
 | min_fee_claim_sol | 0.50 SOL |
 | require_fee_claim | false (replaced by alt gate) |
 | fee_claim_alt_gate_enabled | true |
 | fee_claim_alt_threshold | 40 |
+| min_saved_wallet_holders | 1 |
+| fee_claim_alt_min_saved_wallet_holders | 1 |
 | soft_cutoff_ms | 14400000 (4h) |
 | soft_cutoff_recheck_ms | 3600000 (1h) |
 | soft_cutoff_max_rechecks | 3 (7h total max hold) |
 | reentry_enabled | true |
 | reentry_window_ms | 86400000 (24h) |
 | max_open_positions | 3 |
+
+Current watch-dip trigger values:
+
+| Parameter | Value |
+|-----------|-------|
+| llm_watch_dip_enabled | true |
+| llm_watch_dip_min_confidence | 60 |
+| llm_watch_dip_position_size_sol | 0.02 |
+| llm_watch_dip_min_mcap_usd | 10000 |
+| llm_watch_dip_max_mcap_usd | 90000 |
+| llm_watch_dip_min_liquidity_usd | 8000 |
+| llm_watch_dip_max_liquidity_usd | 25000 |
+| llm_watch_dip_min_source_count | 2 |
+| llm_watch_dip_min_pullback_pct | 30 |
+| llm_watch_dip_max_pullback_pct | 45 |
+| llm_watch_dip_min_recovery_from_low_pct | 8 |
+| llm_watch_dip_min_below_high_pct | 10 |
+| llm_watch_dip_trigger_min_mcap_usd | 10000 |
+| llm_watch_dip_trigger_max_mcap_usd | 90000 |
+| llm_watch_dip_max_staircase_green_candles | 4 |
+| llm_watch_dip_staircase_pullback_pct | 8 |
+| llm_watch_dip_require_fresh_filters | true |
+| llm_watch_dip_require_strong_source_live | true |
+
+Important: this live config is **not** a no-wallet strategy. The base sniper
+candidate gate still requires at least one saved-wallet holder, and the
+fee-claim alt gate also requires at least one saved-wallet holder unless the
+owner explicitly changes those fields.
 
 ### New features live (2026-05-21)
 
@@ -81,27 +131,46 @@ Owner-approved exceptions (cumulative):
 | Path | Description |
 |------|-------------|
 | `/opt/trading-data/charon.sqlite` | Charon DB (2,269 wallets in `saved_wallets`) |
-| `/opt/trading-data/charon-shadow.sqlite` | Shadow DB |
+| `/var/oled/charon-data/trading-data/charon-shadow.sqlite` | Shadow DB |
+| `/var/oled/charon-data/trading-data/charon-scout.sqlite` | Scout DB |
 | `/opt/trading-data/harvester.db` | Harvester DB |
 | `/opt/trading-data/logs/auto-sync-YYYY-MM-DD.log` | Auto-sync pipeline logs |
 | `~/charon/` | Charon repo (branch: `feat/ohlcv-entry-confirmation-soft-cutoff`) |
 | `/home/opc/.cli-proxy-api/config.yaml` | LLM proxy config |
 | `/home/opc/.cli-proxy-api/` | Codex OAuth auth files (3 active accounts) |
 
+### Local Mac data snapshots
+
+For Charon shadow/trade analysis, prefer verified local Mac snapshots before
+reading large VPS DBs directly:
+
+| Path | Description |
+|------|-------------|
+| `~/Trading Project Files/charon-vps-data-snapshots/latest/` | Newest verified local snapshot of VPS trading data |
+| `docs/operations/vps-trading-data-snapshots.md` | Snapshot/retention guard instructions |
+
+Future agents must read `MANIFEST.txt` in the local snapshot first and state the
+snapshot timestamp. Query `moonbags:/opt/trading-data` only for runtime state,
+freshness checks, or bounded rows newer than the local snapshot. When combining
+local + VPS data, use timestamp-gated append-only merges; refresh the snapshot
+instead of merging mutable config/settings tables.
+
 ### PM2 processes
 
 | Name | ID | Status | Description |
 |------|----|--------|-------------|
 | `charon` | 22 | online | Main bot (live mode, sniper strategy) |
-| `charon-shadow` | 10 | online | Shadow bot (dry_run, separate DB) |
+| `charon-shadow` | — | stopped / not in active PM2 list | Shadow bot (dry_run, separate DB). Restart from `ecosystem.config.cjs` when ready. |
 | `charon-observation-collector` | 13 | online | Birdeye OHLCV telemetry collector |
-| `charon-shadow-observation-collector` | 14 | online | Shadow telemetry collector |
-| `charon-shadow-sync` | 16 | stopped (cron) | Shadow DB sync, runs every 2h |
+| `charon-shadow-observation-collector` | — | stopped / not in active PM2 list | Shadow telemetry collector. Restart from `ecosystem.config.cjs` when ready. |
+| `charon-scout` | — | stopped / not in active PM2 list | Scout dry-run learner lane. Restart from `ecosystem.config.cjs` when ready. |
+| `charon-scout-learning` | — | stopped / not in active PM2 list | Scout policy learner cron. Restart from `ecosystem.config.cjs` when ready. |
+| `charon-shadow-sync` | — | stopped / not in active PM2 list | Shadow DB sync, runs every 2h when enabled. Restart from `ecosystem.config.cjs` when ready. |
 | `charon-auto-sync` | 17 | stopped (cron) | Wallet harvest→enrich→sync pipeline, every 6h |
-| `charon-shadow-notifier` | 18 | stopped (cron) | Shadow fleet Telegram notifier, every 30min |
+| `charon-shadow-notifier` | — | stopped / not in active PM2 list | Shadow fleet Telegram notifier, every 30min when enabled. Restart from `ecosystem.config.cjs` when ready. |
 | `cli-proxy-api` | 24 | online | LLM proxy (Codex OAuth, port 8317, no-autorestart) |
 
-Note: stopped cron processes are normal — they run on schedule and exit cleanly (exit code 0).
+Note: stopped cron processes are normal — they run on schedule and exit cleanly (exit code 0). As of 2026-05-29, scout and shadow lanes were intentionally stopped and removed from the active PM2 list after moving their DBs to `/var/oled/charon-data/trading-data`; use the checked-in `ecosystem.config.cjs` to recreate them.
 
 ### LLM proxy (cli-proxy-api)
 

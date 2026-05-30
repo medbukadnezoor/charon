@@ -1,4 +1,4 @@
-import { bot } from './bot.js';
+import { getBot } from './bot.js';
 import { TELEGRAM_CHAT_ID } from '../config.js';
 import { now } from '../utils.js';
 import { numSetting, boolSetting, setSetting, setActiveStrategy, activeStrategy, updateStrategyConfig } from '../db/settings.js';
@@ -94,13 +94,13 @@ export async function handleCallback(query) {
   if (kind === 'cand') return sendCandidate(chatId, Number(id));
   if (kind === 'ign') {
     updateCandidateStatus(Number(id), 'ignored');
-    return bot.sendMessage(chatId, 'Ignored candidate.');
+    return getBot().sendMessage(chatId, 'Ignored candidate.');
   }
   if (kind === 'buy') {
     const row = candidateById(Number(id));
-    if (!row) return bot.sendMessage(chatId, 'Candidate not found.');
+    if (!row) return getBot().sendMessage(chatId, 'Candidate not found.');
     if (!canOpenMorePositions()) {
-      return bot.sendMessage(chatId, `Max open positions reached (${openPositionCount()}/${numSetting('max_open_positions', 3)}). Close one first or raise the limit.`);
+      return getBot().sendMessage(chatId, `Max open positions reached (${openPositionCount()}/${numSetting('max_open_positions', 3)}). Close one first or raise the limit.`);
     }
     const candidate = row.candidate;
     const decision = { verdict: 'BUY', confidence: 100, reason: 'Manual dry buy', risks: [], suggested_tp_percent: numSetting('default_tp_percent', 50), suggested_sl_percent: numSetting('default_sl_percent', -25) };
@@ -133,21 +133,21 @@ export async function handleCallback(query) {
 }
 
 async function answerCallback(query, text = '') {
-  await bot.answerCallbackQuery(query.id, text ? { text } : undefined).catch(() => {});
+  await getBot().answerCallbackQuery(query.id, text ? { text } : undefined).catch(() => {});
 }
 
 export async function editMenuMessage(query, text, extra = {}) {
   const chatId = query.message?.chat?.id || TELEGRAM_CHAT_ID;
   const messageId = query.message?.message_id;
   if (!messageId) {
-    return bot.sendMessage(chatId, text, {
+    return getBot().sendMessage(chatId, text, {
       parse_mode: 'HTML',
       disable_web_page_preview: true,
       ...extra,
     });
   }
   try {
-    return await bot.editMessageText(text, {
+    return await getBot().editMessageText(text, {
       chat_id: chatId,
       message_id: messageId,
       parse_mode: 'HTML',
@@ -156,7 +156,7 @@ export async function editMenuMessage(query, text, extra = {}) {
     });
   } catch (err) {
     if (/message is not modified/i.test(err.message)) return null;
-    return bot.sendMessage(chatId, text, {
+    return getBot().sendMessage(chatId, text, {
       parse_mode: 'HTML',
       disable_web_page_preview: true,
       ...extra,
@@ -223,7 +223,7 @@ async function handleStratConfig(query, chatId, key) {
   }
 
   // Fallback: show current value
-  return bot.sendMessage(chatId, `Current ${key}: ${formatStratValue(key, strat[key])}\nUse /stratset ${strat.id} ${key} <value> to change.`);
+  return getBot().sendMessage(chatId, `Current ${key}: ${formatStratValue(key, strat[key])}\nUse /stratset ${strat.id} ${key} <value> to change.`);
 }
 
 async function updateSettingFromButton(query, key, value) {
@@ -258,7 +258,7 @@ async function updateSettingFromButton(query, key, value) {
     'default_trailing_enabled',
     'default_trailing_percent',
   ]);
-  if (!valid.has(key) || value == null) return bot.sendMessage(chatId, 'Unknown setting.');
+  if (!valid.has(key) || value == null) return getBot().sendMessage(chatId, 'Unknown setting.');
   setSetting(key, value);
   const text = key.startsWith('default_') || key === 'dry_run_buy_sol' || key === 'trading_mode' || key === 'llm_min_confidence' || key === 'llm_timeout_ms' || key === 'llm_candidate_pick_count' || key === 'llm_candidate_max_age_ms' || key === 'max_open_positions'
     ? agentText()

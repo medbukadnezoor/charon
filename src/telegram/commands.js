@@ -1,5 +1,5 @@
-import { bot } from './bot.js';
-import { TELEGRAM_CHAT_ID } from '../config.js';
+import { getBot } from './bot.js';
+import { TELEGRAM_CHAT_ID, TELEGRAM_POLLING_ENABLED } from '../config.js';
 import { now, json } from '../utils.js';
 import { escapeHtml, fmtPct } from '../format.js';
 import { db } from '../db/connection.js';
@@ -39,29 +39,29 @@ export async function handleMessage(msg) {
   if (!text.startsWith('/')) return;
   if (text.startsWith('/menu')) return sendMenu(chatId);
   if (text.startsWith('/positions')) return sendPositions(chatId);
-  if (text.startsWith('/filters')) return bot.sendMessage(chatId, filtersText(), { parse_mode: 'HTML' });
+  if (text.startsWith('/filters')) return getBot().sendMessage(chatId, filtersText(), { parse_mode: 'HTML' });
   if (text.startsWith('/strategy')) {
     const parts = text.split(/\s+/);
     const id = parts[1];
     if (!id) {
-      return bot.sendMessage(chatId, strategyMenuText(), { parse_mode: 'HTML', ...strategyKeyboard() });
+      return getBot().sendMessage(chatId, strategyMenuText(), { parse_mode: 'HTML', ...strategyKeyboard() });
     }
     const valid = ['sniper', 'dip_buy', 'smart_money', 'degen'];
     if (!valid.includes(id)) {
-      return bot.sendMessage(chatId, `Unknown strategy. Valid: ${valid.join(', ')}`);
+      return getBot().sendMessage(chatId, `Unknown strategy. Valid: ${valid.join(', ')}`);
     }
     setActiveStrategy(id);
-    return bot.sendMessage(chatId, strategyMenuText(), { parse_mode: 'HTML', ...strategyKeyboard() });
+    return getBot().sendMessage(chatId, strategyMenuText(), { parse_mode: 'HTML', ...strategyKeyboard() });
   }
   if (text.startsWith('/stratset')) {
     const parts = text.split(/\s+/);
     const [, id, key, ...rest] = parts;
     const value = rest.join(' ');
     if (!id || !key || !value) {
-      return bot.sendMessage(chatId, 'Usage: /stratset <strategy_id> <key> <value>\n\nExample: /stratset sniper tp_percent 75\n\nKeys: tp_percent, sl_percent, position_size_sol, max_open_positions, min_mcap_usd, max_mcap_usd, min_holders, trailing_enabled, trailing_percent, partial_tp, partial_tp_at_percent, partial_tp_sell_percent, max_hold_ms, max_hold_if_no_tp_ms, breakeven_after_profit_percent, breakeven_lock_percent, use_llm, llm_min_confidence, min_source_count, require_fee_claim, min_fee_claim_sol, min_gmgn_total_fee_sol, max_ath_distance_pct');
+      return getBot().sendMessage(chatId, 'Usage: /stratset <strategy_id> <key> <value>\n\nExample: /stratset sniper tp_percent 75\n\nKeys: tp_percent, sl_percent, position_size_sol, max_open_positions, min_mcap_usd, max_mcap_usd, min_holders, trailing_enabled, trailing_percent, partial_tp, partial_tp_at_percent, partial_tp_sell_percent, max_hold_ms, max_hold_if_no_tp_ms, breakeven_after_profit_percent, breakeven_lock_percent, use_llm, llm_min_confidence, min_source_count, require_fee_claim, min_fee_claim_sol, min_gmgn_total_fee_sol, max_ath_distance_pct');
     }
     const strat = strategyById(id);
-    if (!strat) return bot.sendMessage(chatId, `Strategy "${id}" not found.`);
+    if (!strat) return getBot().sendMessage(chatId, `Strategy "${id}" not found.`);
     const numKeys = new Set(['tp_percent', 'sl_percent', 'position_size_sol', 'max_open_positions', 'min_mcap_usd', 'max_mcap_usd', 'min_holders', 'max_top20_holder_percent', 'trailing_percent', 'partial_tp_at_percent', 'partial_tp_sell_percent', 'max_hold_ms', 'max_hold_if_no_tp_ms', 'breakeven_after_profit_percent', 'breakeven_lock_percent', 'llm_min_confidence', 'min_source_count', 'min_fee_claim_sol', 'min_gmgn_total_fee_sol', 'max_ath_distance_pct', 'token_age_max_ms', 'trending_min_volume_usd', 'trending_min_swaps', 'trending_max_rug_ratio', 'trending_max_bundler_rate', 'min_saved_wallet_holders', 'min_graduated_volume_usd']);
     const boolKeys = new Set(['trailing_enabled', 'partial_tp', 'use_llm', 'require_fee_claim']);
     const newConfig = { ...strat };
@@ -75,7 +75,7 @@ export async function handleMessage(msg) {
       newConfig[key] = value;
     }
     updateStrategyConfig(id, newConfig);
-    return bot.sendMessage(chatId, `Updated ${id}.${key} = ${value}\n\n${strategyMenuText()}`, { parse_mode: 'HTML' });
+    return getBot().sendMessage(chatId, `Updated ${id}.${key} = ${value}\n\n${strategyMenuText()}`, { parse_mode: 'HTML' });
   }
   if (text.startsWith('/pnl')) {
     const { sendPnl } = await import('./send.js');
@@ -88,28 +88,28 @@ export async function handleMessage(msg) {
   if (text.startsWith('/lessons')) return sendLessons(chatId);
   if (text.startsWith('/candidate')) {
     const mint = text.split(/\s+/)[1];
-    if (!mint) return bot.sendMessage(chatId, 'Usage: /candidate <mint>');
+    if (!mint) return getBot().sendMessage(chatId, 'Usage: /candidate <mint>');
     const row = latestCandidateByMint(mint);
-    if (!row) return bot.sendMessage(chatId, 'Candidate not found.');
+    if (!row) return getBot().sendMessage(chatId, 'Candidate not found.');
     return sendCandidate(chatId, row.id);
   }
   if (text.startsWith('/walletadd')) {
     const [, label, address] = text.split(/\s+/);
-    if (!label || !address) return bot.sendMessage(chatId, 'Usage: /walletadd <label> <address>');
+    if (!label || !address) return getBot().sendMessage(chatId, 'Usage: /walletadd <label> <address>');
     db.prepare(`
       INSERT INTO saved_wallets (label, address, created_at_ms) VALUES (?, ?, ?)
       ON CONFLICT(label) DO UPDATE SET address = excluded.address
     `).run(label, address, now());
-    return bot.sendMessage(chatId, `Saved wallet ${label}.`);
+    return getBot().sendMessage(chatId, `Saved wallet ${label}.`);
   }
   if (text.startsWith('/walletremove')) {
     const label = text.split(/\s+/)[1];
-    if (!label) return bot.sendMessage(chatId, 'Usage: /walletremove <label>');
+    if (!label) return getBot().sendMessage(chatId, 'Usage: /walletremove <label>');
     db.prepare('DELETE FROM saved_wallets WHERE label = ?').run(label);
-    return bot.sendMessage(chatId, `Removed ${label}.`);
+    return getBot().sendMessage(chatId, `Removed ${label}.`);
   }
   if (text.startsWith('/wallets')) {
-    return bot.sendMessage(chatId, walletsText(), {
+    return getBot().sendMessage(chatId, walletsText(), {
       parse_mode: 'HTML',
       disable_web_page_preview: true,
       ...navKeyboard(),
@@ -155,18 +155,18 @@ export async function handleMessage(msg) {
       'dry_run_fee_pct',
     ]);
     if (!valid.has(key) || value == null) {
-      return bot.sendMessage(chatId, `Usage: /setfilter &lt;name&gt; &lt;value&gt;\n\n${filtersText()}`, { parse_mode: 'HTML' });
+      return getBot().sendMessage(chatId, `Usage: /setfilter &lt;name&gt; &lt;value&gt;\n\n${filtersText()}`, { parse_mode: 'HTML' });
     }
     setSetting(key, value === 'off' ? '0' : value);
-    return bot.sendMessage(chatId, filtersText(), { parse_mode: 'HTML' });
+    return getBot().sendMessage(chatId, filtersText(), { parse_mode: 'HTML' });
   }
 }
 
 export async function sendCandidate(chatId, id) {
   const row = candidateById(id);
-  if (!row) return bot.sendMessage(chatId, 'Candidate not found.');
+  if (!row) return getBot().sendMessage(chatId, 'Candidate not found.');
   const decision = db.prepare('SELECT * FROM llm_decisions WHERE candidate_id = ? ORDER BY id DESC LIMIT 1').get(id);
-  await bot.sendMessage(chatId, candidateSummary(row.candidate, decision), {
+  await getBot().sendMessage(chatId, candidateSummary(row.candidate, decision), {
     parse_mode: 'HTML',
     disable_web_page_preview: true,
     ...candidateButtons(id, decision),
@@ -174,7 +174,7 @@ export async function sendCandidate(chatId, id) {
 }
 
 export async function sendPositions(chatId) {
-  await bot.sendMessage(chatId, positionsText(), {
+  await getBot().sendMessage(chatId, positionsText(), {
     parse_mode: 'HTML',
     disable_web_page_preview: true,
     ...positionsKeyboard(),
@@ -183,7 +183,7 @@ export async function sendPositions(chatId) {
 
 export async function sendPosition(chatId, id, query = null) {
   let row = db.prepare('SELECT * FROM dry_run_positions WHERE id = ?').get(id);
-  if (!row) return bot.sendMessage(chatId, 'Position not found.');
+  if (!row) return getBot().sendMessage(chatId, 'Position not found.');
   if (row.status === 'open') {
     const refreshed = await refreshPosition(row, { autoExit: row.execution_mode !== 'live' }).catch((err) => {
       console.log(`[position] refresh ${id} ${err.message}`);
@@ -193,12 +193,12 @@ export async function sendPosition(chatId, id, query = null) {
   }
   const buttons = row.status === 'open' ? positionButtons(id) : {};
   if (query) return editMenuMessage(query, formatPosition(row), buttons);
-  await bot.sendMessage(chatId, formatPosition(row), { parse_mode: 'HTML', disable_web_page_preview: true, ...buttons });
+  await getBot().sendMessage(chatId, formatPosition(row), { parse_mode: 'HTML', disable_web_page_preview: true, ...buttons });
 }
 
 export async function closePosition(chatId, id, reason) {
   const row = db.prepare('SELECT * FROM dry_run_positions WHERE id = ?').get(id);
-  if (!row || row.status !== 'open') return bot.sendMessage(chatId, 'Open position not found.');
+  if (!row || row.status !== 'open') return getBot().sendMessage(chatId, 'Open position not found.');
   const result = await refreshPosition(row, { autoExit: false });
   const price = result?.price ?? row.high_water_price ?? row.entry_price;
   const mcap = result?.mcap ?? row.high_water_mcap ?? row.entry_mcap;
@@ -227,11 +227,11 @@ export async function closePosition(chatId, id, reason) {
     VALUES (?, ?, 'sell', ?, ?, ?, ?, ?, ?, ?)
   `).run(id, row.mint, now(), price, mcap, row.size_sol, row.token_amount_est, reason, json({ pnlPercent, pnlSol, sell }));
   const label = row.execution_mode === 'live' ? 'Closed live position' : 'Closed dry-run position';
-  await bot.sendMessage(chatId, `${label} #${id}: ${escapeHtml(reason)} ${fmtPct(pnlPercent)}`, { parse_mode: 'HTML' });
+  await getBot().sendMessage(chatId, `${label} #${id}: ${escapeHtml(reason)} ${fmtPct(pnlPercent)}`, { parse_mode: 'HTML' });
 }
 
 export async function updatePositionRule(chatId, id, field, nextValue, query = null) {
-  if (!Number.isFinite(nextValue)) return bot.sendMessage(chatId, 'Invalid value.');
+  if (!Number.isFinite(nextValue)) return getBot().sendMessage(chatId, 'Invalid value.');
   db.prepare(`UPDATE dry_run_positions SET ${field} = ? WHERE id = ?`).run(nextValue, id);
   const row = db.prepare('SELECT * FROM dry_run_positions WHERE id = ?').get(id);
   if (row) {
@@ -251,7 +251,7 @@ export async function updatePositionRule(chatId, id, field, nextValue, query = n
 
 export async function toggleTrailing(chatId, id, query = null) {
   const row = db.prepare('SELECT * FROM dry_run_positions WHERE id = ?').get(id);
-  if (!row) return bot.sendMessage(chatId, 'Position not found.');
+  if (!row) return getBot().sendMessage(chatId, 'Position not found.');
   const next = row.trailing_enabled ? 0 : 1;
   db.prepare('UPDATE dry_run_positions SET trailing_enabled = ? WHERE id = ?').run(next, id);
   db.prepare(`
@@ -268,7 +268,11 @@ export async function toggleTrailing(chatId, id, query = null) {
 }
 
 export function setupTelegram() {
-  bot.setMyCommands([
+  if (!TELEGRAM_POLLING_ENABLED || process.env.INSTANCE_ID === 'scout' || process.env.SHADOW_MODE === 'true') {
+    console.log('[shadow] Telegram command registration skipped (polling disabled)');
+    return;
+  }
+  getBot().setMyCommands([
     { command: 'menu', description: 'Open Charon menu' },
     { command: 'strategy', description: 'Show/switch strategy' },
     { command: 'stratset', description: 'Set strategy config (stratset id key value)' },
@@ -284,14 +288,14 @@ export function setupTelegram() {
     { command: 'wallets', description: 'List saved wallets' },
   ]).catch(err => console.log(`[telegram] commands ${err.message}`));
 
-  bot.on('callback_query', query => handleCallback(query).catch(err => console.log(`[callback] ${err.message}`)));
-  bot.on('message', msg => handleMessage(msg).catch(err => console.log(`[message] ${err.message}`)));
-  bot.on('polling_error', err => console.log(`[telegram] polling ${err.message}`));
+  getBot().on('callback_query', query => handleCallback(query).catch(err => console.log(`[callback] ${err.message}`)));
+  getBot().on('message', msg => handleMessage(msg).catch(err => console.log(`[message] ${err.message}`)));
+  getBot().on('polling_error', err => console.log(`[telegram] polling ${err.message}`));
 }
 
 async function sendMenu(chatId = TELEGRAM_CHAT_ID) {
   const { TELEGRAM_TOPIC_ID } = await import('../config.js');
-  await bot.sendMessage(chatId, mainMenuText(), {
+  await getBot().sendMessage(chatId, mainMenuText(), {
     parse_mode: 'HTML',
     disable_web_page_preview: true,
     ...(TELEGRAM_TOPIC_ID ? { message_thread_id: Number(TELEGRAM_TOPIC_ID) } : {}),

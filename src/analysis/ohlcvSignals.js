@@ -257,6 +257,70 @@ export function computeEntrySignals(candles, { rsiPeriod = 14, vwapLookback = 15
   return { confirm, reject_reason: rejectReason, rsi, vwap_position: vwapPosition, volume_trend: volumeTrend, candle_structure: candleStructure, score };
 }
 
+export function computeStrictEntryShadowPolicy(entrySignals = {}, {
+  minScore = 60,
+  minCandles = 15,
+  rejectRsiUnavailable = true,
+  maxRsi = 70,
+  maxMcapDisagreementPercent = 100,
+  mcapDisagreementPercent = null,
+} = {}) {
+  const reasons = [];
+  const score = Number(entrySignals.score ?? 0);
+  const candleCount = Number(entrySignals.candle_count ?? 0);
+  const rsi = entrySignals.rsi == null ? null : Number(entrySignals.rsi);
+  const disagreement = mcapDisagreementPercent == null ? null : Number(mcapDisagreementPercent);
+
+  if (score < Number(minScore)) reasons.push('strict_score_low');
+  if (candleCount < Number(minCandles)) reasons.push('strict_insufficient_candles');
+  if (rejectRsiUnavailable && !Number.isFinite(rsi)) reasons.push('strict_rsi_unavailable');
+  if (Number.isFinite(rsi) && rsi > Number(maxRsi)) reasons.push('strict_rsi_overbought');
+  if (Number.isFinite(disagreement) && disagreement > Number(maxMcapDisagreementPercent)) {
+    reasons.push('strict_mcap_disagreement');
+  }
+
+  return {
+    pass: reasons.length === 0,
+    reasons,
+    thresholds: {
+      minScore: Number(minScore),
+      minCandles: Number(minCandles),
+      rejectRsiUnavailable: Boolean(rejectRsiUnavailable),
+      maxRsi: Number(maxRsi),
+      maxMcapDisagreementPercent: Number(maxMcapDisagreementPercent),
+    },
+    observed: {
+      score,
+      candleCount,
+      rsi: Number.isFinite(rsi) ? rsi : null,
+      vwapPosition: entrySignals.vwap_position || 'unknown',
+      volumeTrend: entrySignals.volume_trend || 'unknown',
+      candleStructure: entrySignals.candle_structure || 'unknown',
+      candleSource: entrySignals.candle_source || 'unknown',
+      mcapDisagreementPercent: Number.isFinite(disagreement) ? disagreement : null,
+      originalConfirm: Boolean(entrySignals.confirm),
+      originalRejectReason: entrySignals.reject_reason || null,
+    },
+  };
+}
+
+export function isWatchableEntryReject(entrySignals, {
+  minEntryScore = 45,
+  scoreSlack = 10,
+} = {}) {
+  if (!entrySignals || entrySignals.confirm) return false;
+  const reason = entrySignals.reject_reason || null;
+  const watchableReasons = new Set([
+    'rsi_overbought',
+    'extended_above_vwap',
+    'volume_exhaustion',
+    'rejection_wicks',
+  ]);
+  if (watchableReasons.has(reason)) return true;
+  if (reason === null && Number(entrySignals.score) >= Number(minEntryScore) - Number(scoreSlack)) return true;
+  return false;
+}
+
 // --- Soft-cutoff signals ---
 
 /**

@@ -5,7 +5,8 @@ import { savedWallets } from '../enrichment/wallets.js';
 import { gmgnStatusText } from '../enrichment/gmgn.js';
 import { liveWalletPubkey } from '../liveExecutor.js';
 import { formatPosition } from './format.js';
-import { ENABLE_LLM, LLM_API_KEY } from '../config.js';
+import { llmConfigured, primaryLlmProvider } from '../llm/providers.js';
+import { getBot } from './bot.js';
 
 export function menuKeyboard() {
   return {
@@ -124,7 +125,7 @@ export function agentText() {
     `Strategy: <b>${escapeHtml(strat.name)}</b>`,
     `Agent: <b>${boolSetting('agent_enabled', true) ? 'on' : 'off'}</b>`,
     `Mode: <b>${escapeHtml(tradingMode())}</b>`,
-    `LLM: <b>${strat.use_llm && ENABLE_LLM && LLM_API_KEY ? 'configured' : 'disabled'}</b>`,
+    `LLM: <b>${strat.use_llm && llmConfigured() ? `configured (${escapeHtml(primaryLlmProvider()?.id || 'provider')})` : 'disabled'}</b>`,
     liveWalletText(),
     `Confidence: ${fmtPct(strat.llm_min_confidence || numSetting('llm_min_confidence', 75))}`,
     `LLM timeout: ${Math.round(numSetting('llm_timeout_ms', 90000) / 1000)}s`,
@@ -467,24 +468,22 @@ export async function sendTpSlDefaults(chatId, query = null) {
     },
   };
   if (query) return editMenuMessage(query, agentText(), keyboard);
-  const { bot } = await import('./bot.js');
-  await bot.sendMessage(chatId, agentText(), { parse_mode: 'HTML', ...keyboard });
+  await getBot().sendMessage(chatId, agentText(), { parse_mode: 'HTML', ...keyboard });
 }
 
 async function editMenuMessage(query, text, extra = {}) {
   const { TELEGRAM_CHAT_ID } = await import('../config.js');
   const chatId = query.message?.chat?.id || TELEGRAM_CHAT_ID;
   const messageId = query.message?.message_id;
-  const { bot } = await import('./bot.js');
   if (!messageId) {
-    return bot.sendMessage(chatId, text, {
+    return getBot().sendMessage(chatId, text, {
       parse_mode: 'HTML',
       disable_web_page_preview: true,
       ...extra,
     });
   }
   try {
-    return await bot.editMessageText(text, {
+    return await getBot().editMessageText(text, {
       chat_id: chatId,
       message_id: messageId,
       parse_mode: 'HTML',
@@ -493,7 +492,7 @@ async function editMenuMessage(query, text, extra = {}) {
     });
   } catch (err) {
     if (/message is not modified/i.test(err.message)) return null;
-    return bot.sendMessage(chatId, text, {
+    return getBot().sendMessage(chatId, text, {
       parse_mode: 'HTML',
       disable_web_page_preview: true,
       ...extra,

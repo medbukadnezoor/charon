@@ -1,10 +1,12 @@
 import axios from 'axios';
-import { ENABLE_LLM, LLM_API_KEY, LLM_BASE_URL, LLM_MAX_COMPLETION_TOKENS, LLM_MODEL, LLM_REASONING_EFFORT, LLM_TIMEOUT_MS } from '../config.js';
+import { LLM_MAX_COMPLETION_TOKENS, LLM_MODEL, LLM_REASONING_EFFORT, LLM_TIMEOUT_MS } from '../config.js';
 import { now, stripThinking, strictJsonFromText } from '../utils.js';
 import { boolSetting, numSetting } from '../db/settings.js';
 import { db } from '../db/connection.js';
 import { logUsageEvent, normalizeUsageTokens } from '../db/usage.js';
 import { analyzeHolders } from '../enrichment/holder-intelligence.js';
+import { llmConfigured, postChatCompletion, primaryLlmProvider } from '../llm/providers.js';
+import { buildLearnedPolicyContext } from '../db/scoutPolicy.js';
 import {
   buildTieredEnvelope,
   classifyTier,
@@ -31,6 +33,9 @@ export function normalizeDecision(parsed, fallbackReason = '') {
     confidence: Math.max(0, Math.min(100, Number(parsed?.confidence) || 0)),
     reason: String(parsed?.reason || fallbackReason).slice(0, 1000),
     risks: Array.isArray(parsed?.risks) ? parsed.risks.map(String).slice(0, 8) : [],
+    risk_profile: ['conservative', 'standard', 'runner'].includes(String(parsed?.risk_profile || '').toLowerCase())
+      ? String(parsed.risk_profile).toLowerCase()
+      : null,
     suggested_tp_percent: Number(parsed?.suggested_tp_percent) || numSetting('default_tp_percent', 50),
     suggested_sl_percent: Number(parsed?.suggested_sl_percent) || numSetting('default_sl_percent', -25),
     raw: parsed,
@@ -38,14 +43,11 @@ export function normalizeDecision(parsed, fallbackReason = '') {
 }
 
 function llmProviderName() {
-  try {
-    return new URL(LLM_BASE_URL).hostname;
-  } catch {
-    return 'openai-compatible';
-  }
+  return primaryLlmProvider()?.label || primaryLlmProvider({ includeUnavailable: true })?.label || 'openai-compatible';
 }
 
 function errorClass(err) {
+  if (err?.errorClass) return err.errorClass;
   if (err?.code === 'ECONNABORTED' || /timeout/i.test(String(err?.message || ''))) return 'timeout';
   if (err?.response?.status) return `http_${err.response.status}`;
   return err?.name || 'error';
@@ -57,6 +59,71 @@ function safeLogUsageEvent(event) {
   } catch (err) {
     console.log(`[llm] usage ledger write failed: ${err.message}`);
     return null;
+  }
+}
+
+function llmSemanticError(errorClassName, message, responseBytes = 0, cause = null) {
+  const err = new Error(message);
+  err.name = 'LlmSemanticError';
+  err.errorClass = errorClassName;
+  err.responseBytes = responseBytes;
+  if (cause) err.cause = cause;
+  return err;
+}
+
+function validateDecisionSchema(parsed) {
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw llmSemanticError('invalid_decision_schema', 'LLM response is not a decision object.');
+  }
+  const verdict = String(parsed.verdict || '').toUpperCase();
+  if (!['BUY', 'WATCH', 'PASS'].includes(verdict)) {
+    throw llmSemanticError('invalid_decision_schema', 'LLM response has invalid or missing verdict.');
+  }
+  const confidence = Number(parsed.confidence);
+  if (!Number.isFinite(confidence) || confidence < 0 || confidence > 100) {
+    throw llmSemanticError('invalid_decision_schema', 'LLM response has invalid or missing confidence.');
+  }
+  if (verdict === 'BUY' && parsed.selected_candidate_id == null && !parsed.selected_mint) {
+    throw llmSemanticError('invalid_decision_schema', 'BUY decision is missing selected candidate identity.');
+  }
+  return parsed;
+}
+
+function validateBatchDecisionResponse({ response }) {
+  const content = String(response?.data?.choices?.[0]?.message?.content || '');
+  const responseBytes = Buffer.byteLength(content, 'utf8');
+  if (responseBytes === 0) {
+    throw llmSemanticError('empty_content', 'LLM response content was empty.', responseBytes);
+  }
+  try {
+    return validateDecisionSchema(strictJsonFromText(content));
+  } catch (err) {
+    if (err?.errorClass) {
+      err.responseBytes = responseBytes;
+      throw err;
+    }
+    throw llmSemanticError('parse_error', 'LLM response was not valid strict JSON.', responseBytes, err);
+  }
+}
+
+function logFailedProviderAttempts(attempts, {
+  triggerCandidateId,
+  candidateCount,
+  requestBytes,
+} = {}) {
+  for (const attempt of attempts || []) {
+    if (attempt.status !== 'error') continue;
+    safeLogUsageEvent({
+      status: attempt.errorClass === 'timeout' ? 'timeout' : 'error',
+      provider: attempt.providerLabel || attempt.provider || llmProviderName(),
+      model: attempt.model || primaryLlmProvider()?.model || primaryLlmProvider({ includeUnavailable: true })?.model || LLM_MODEL,
+      triggerCandidateId,
+      candidateCount,
+      requestBytes,
+      responseBytes: attempt.responseBytes || 0,
+      latencyMs: attempt.latencyMs || 0,
+      errorClass: attempt.errorClass || 'error',
+    });
   }
 }
 
@@ -272,13 +339,13 @@ export async function decideCandidateBatch(rows, triggerCandidateId) {
     };
   }
 
-  if (!ENABLE_LLM || !LLM_API_KEY) {
+  if (!llmConfigured()) {
     return {
       verdict: 'WATCH',
       confidence: 0,
       selected_candidate_id: null,
       selected_mint: null,
-      reason: 'LLM disabled or LLM_API_KEY missing.',
+      reason: 'LLM disabled or no configured LLM provider has a usable key.',
       risks: ['no_llm_decision'],
       suggested_tp_percent: numSetting('default_tp_percent', 50),
       suggested_sl_percent: numSetting('default_sl_percent', -25),
@@ -320,6 +387,7 @@ export async function decideCandidateBatch(rows, triggerCandidateId) {
   const user = {
     task: 'Pick the best dry-run buy candidate from this recent batch, or choose none.',
     recent_lessons: activeLessonsForPrompt(),
+    learned_policy_context: buildLearnedPolicyContext(),
     output_schema: {
       verdict: 'BUY|WATCH|PASS',
       selected_candidate_id: 'integer candidate_id when verdict is BUY, otherwise null',
@@ -327,8 +395,9 @@ export async function decideCandidateBatch(rows, triggerCandidateId) {
       confidence: 'number 0-100',
       reason: 'short string',
       risks: ['short strings'],
-      suggested_tp_percent: 'positive number',
-      suggested_sl_percent: 'negative number',
+      risk_profile: 'conservative|standard|runner for BUY decisions; conservative hard-exits at +80%, standard/runner may arm trailing and breakeven at +100%',
+      suggested_tp_percent: 'optional positive diagnostic number; live sniper execution will clamp below policy floors',
+      suggested_sl_percent: 'optional negative diagnostic number; live sniper execution will clamp weak stops below policy floors',
     },
     trigger_candidate_id: triggerCandidateId,
     candidates,
@@ -383,6 +452,7 @@ export async function decideCandidateBatch(rows, triggerCandidateId) {
       suggested_sl_percent: numSetting('default_sl_percent', -25),
       raw: { fallback: 'llm_payload_budget_exceeded', payloadSizeBytes: budgetResult.payloadSizeBytes, budgetBytes },
       audit,
+      learned_policy_context: user.learned_policy_context,
     };
   }
   const timeoutMs = numSetting('llm_timeout_ms', LLM_TIMEOUT_MS);
@@ -403,10 +473,17 @@ export async function decideCandidateBatch(rows, triggerCandidateId) {
   let providerUsage = null;
 
   try {
-    res = await axios.post(`${LLM_BASE_URL.replace(/\/$/, '')}/chat/completions`, requestBody, {
+    const completion = await postChatCompletion(requestBody, {
       timeout: timeoutMs,
-      headers: { authorization: `Bearer ${LLM_API_KEY}`, 'content-type': 'application/json' },
+      axiosClient: axios,
+      validateResponse: validateBatchDecisionResponse,
     });
+    logFailedProviderAttempts(completion.attempts, {
+      triggerCandidateId,
+      candidateCount: finalCandidates.length,
+      requestBytes,
+    });
+    res = completion.response;
     const content = res.data?.choices?.[0]?.message?.content || '';
     responseBytes = Buffer.byteLength(content, 'utf8');
     providerUsage = res.data?.usage || null;
@@ -417,8 +494,8 @@ export async function decideCandidateBatch(rows, triggerCandidateId) {
     const row = rows.find(item => item.id === selectedId || item.candidate.token?.mint === selectedMint);
     safeLogUsageEvent({
       status: 'success',
-      provider: llmProviderName(),
-      model: LLM_MODEL,
+      provider: completion.provider.label,
+      model: completion.provider.model,
       triggerCandidateId,
       candidateCount: finalCandidates.length,
       requestBytes,
@@ -432,26 +509,37 @@ export async function decideCandidateBatch(rows, triggerCandidateId) {
       selected_mint: decision.verdict === 'BUY' && row ? row.candidate.token.mint : null,
       selected_row: decision.verdict === 'BUY' && row ? row : null,
       audit,
+      learned_policy_context: user.learned_policy_context,
     };
   } catch (err) {
     console.log(`[llm] batch failed: ${err.message}`);
+    if (err.attempts?.length) {
+      logFailedProviderAttempts(err.attempts, {
+        triggerCandidateId,
+        candidateCount: finalCandidates.length,
+        requestBytes,
+      });
+      responseBytes = err.responseBytes || 0;
+    }
     const usageTokens = normalizeUsageTokens({
       usage: providerUsage,
       requestBytes,
       responseBytes,
     });
-    safeLogUsageEvent({
-      status: errorClass(err) === 'timeout' ? 'timeout' : 'error',
-      provider: llmProviderName(),
-      model: LLM_MODEL,
-      triggerCandidateId,
-      candidateCount: finalCandidates.length,
-      requestBytes,
-      responseBytes,
-      latencyMs: now() - requestStartedAt,
-      ...usageTokens,
-      errorClass: errorClass(err),
-    });
+    if (!err.attempts?.length) {
+      safeLogUsageEvent({
+        status: errorClass(err) === 'timeout' ? 'timeout' : 'error',
+        provider: llmProviderName(),
+        model: primaryLlmProvider()?.model || primaryLlmProvider({ includeUnavailable: true })?.model || LLM_MODEL,
+        triggerCandidateId,
+        candidateCount: finalCandidates.length,
+        requestBytes,
+        responseBytes,
+        latencyMs: now() - requestStartedAt,
+        ...usageTokens,
+        errorClass: errorClass(err),
+      });
+    }
     return {
       verdict: 'WATCH',
       confidence: 0,
@@ -461,8 +549,18 @@ export async function decideCandidateBatch(rows, triggerCandidateId) {
       risks: ['llm_error'],
       suggested_tp_percent: numSetting('default_tp_percent', 50),
       suggested_sl_percent: numSetting('default_sl_percent', -25),
-      raw: { error: err.message },
+      raw: {
+        error: err.message,
+        attempts: (err.attempts || []).map(attempt => ({
+          provider: attempt.provider,
+          status: attempt.status,
+          errorClass: attempt.errorClass,
+          responseBytes: attempt.responseBytes || 0,
+          latencyMs: attempt.latencyMs || 0,
+        })),
+      },
       audit,
+      learned_policy_context: user.learned_policy_context,
     };
   }
 }

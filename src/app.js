@@ -5,7 +5,9 @@ import { loadWalletCache } from './enrichment/wallets.js';
 import { initLiveExecution } from './liveExecutor.js';
 import { setupTelegram } from './telegram/commands.js';
 import { monitorPositions } from './execution/positions.js';
-import { processCandidateFromSignals, maybeProcessDegenCandidate } from './pipeline/orchestrator.js';
+import { processCandidateFromSignals, maybeProcessDegenCandidate, handleApprovedBuy } from './pipeline/orchestrator.js';
+import { runDueEntryWatches } from './pipeline/entryWatch.js';
+import { numSetting } from './db/settings.js';
 import { sendTelegram } from './telegram/send.js';
 import { makeFailureTracker } from './utils.js';
 
@@ -62,5 +64,7 @@ export async function startCharon() {
 
   // Position monitoring runs in both modes
   const trackPositions = makeFailureTracker('position monitor', (msg) => sendTelegram(msg));
+  const trackEntryWatch = makeFailureTracker('entry watch', (msg) => sendTelegram(msg));
   setInterval(() => trackPositions(() => monitorPositions()), POSITION_CHECK_MS);
+  setInterval(() => trackEntryWatch(() => runDueEntryWatches({ handleApprovedBuy })), numSetting('entry_watch_eval_interval_ms', 60_000));
 }

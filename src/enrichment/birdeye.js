@@ -71,6 +71,13 @@ function unwrapData(payload) {
   return payload?.data?.items || payload?.data?.list || payload?.data || payload;
 }
 
+function unwrapItems(payload) {
+  const rows = unwrapData(payload);
+  if (Array.isArray(rows)) return rows;
+  if (Array.isArray(rows?.items)) return rows.items;
+  return [];
+}
+
 function intervalMs(interval) {
   const match = String(interval || '').match(/^(\d+)([smhd])$/);
   if (!match) return 5 * 60_000;
@@ -137,18 +144,36 @@ function priceForMint(row, mint) {
   return numberOrNull(row.price ?? row.token_price ?? row.price_usd);
 }
 
+function pairAddressFromTokenTx(row) {
+  return row?.pool_id
+    || row?.pool_address
+    || row?.pair_address
+    || row?.pairAddress
+    || row?.market_address
+    || row?.marketAddress
+    || row?.pool?.address
+    || row?.pair?.address
+    || null;
+}
+
+function pointFromTokenTx(row, mint) {
+  const atMs = numberOrNull(row.block_unix_time) == null ? null : Number(row.block_unix_time) * 1000;
+  const price = priceForMint(row, mint);
+  if (atMs == null || price == null) return null;
+  return {
+    atMs,
+    price,
+    volume: numberOrNull(row.volume_usd),
+  };
+}
+
 function candleFromTokenTxs(payload, { mint, interval = '5m', atMs = now() } = {}) {
-  const rows = unwrapData(payload);
-  const items = Array.isArray(rows) ? rows : Array.isArray(rows?.items) ? rows.items : [];
+  const items = unwrapItems(payload);
   const durationMs = intervalMs(interval);
   const startMs = atMs - durationMs;
   const points = items
-    .map(row => ({
-      atMs: numberOrNull(row.block_unix_time) == null ? null : Number(row.block_unix_time) * 1000,
-      price: priceForMint(row, mint),
-      volume: numberOrNull(row.volume_usd),
-    }))
-    .filter(row => row.atMs != null && row.atMs >= startMs && row.atMs <= atMs && row.price != null)
+    .map(row => pointFromTokenTx(row, mint))
+    .filter(row => row && row.atMs >= startMs && row.atMs <= atMs)
     .sort((a, b) => a.atMs - b.atMs);
   if (!points.length) return null;
   return {
@@ -166,6 +191,43 @@ function candleFromTokenTxs(payload, { mint, interval = '5m', atMs = now() } = {
   };
 }
 
+function candlesFromTokenTxs(payload, { mint, interval = '1m', atMs = now(), count = 15 } = {}) {
+  const items = unwrapItems(payload);
+  const durationMs = intervalMs(interval);
+  const countLimit = Math.max(1, Math.trunc(Number(count) || 1));
+  const startMs = atMs - (durationMs * countLimit);
+  const bucketCount = countLimit;
+  const buckets = Array.from({ length: bucketCount }, (_, index) => {
+    const bucketStartMs = startMs + (index * durationMs);
+    return {
+      unixTime: Math.floor(bucketStartMs / 1000),
+      type: interval,
+      o: null,
+      h: null,
+      l: null,
+      c: null,
+      v: 0,
+      source: 'token_txs',
+      sampleCount: 0,
+    };
+  });
+  const points = items
+    .map(row => pointFromTokenTx(row, mint))
+    .filter(row => row && row.atMs >= startMs && row.atMs <= atMs)
+    .sort((a, b) => a.atMs - b.atMs);
+  for (const point of points) {
+    const index = Math.min(bucketCount - 1, Math.max(0, Math.floor((point.atMs - startMs) / durationMs)));
+    const bucket = buckets[index];
+    if (bucket.o == null) bucket.o = point.price;
+    bucket.h = bucket.h == null ? point.price : Math.max(bucket.h, point.price);
+    bucket.l = bucket.l == null ? point.price : Math.min(bucket.l, point.price);
+    bucket.c = point.price;
+    bucket.v += Number(point.volume || 0);
+    bucket.sampleCount += 1;
+  }
+  return buckets.filter(row => row.sampleCount > 0);
+}
+
 function numberOrNull(value) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
@@ -178,7 +240,10 @@ function integerOrNull(value) {
 
 function stubBirdeye(pathname, params = {}) {
   if (/ohlcv/.test(pathname)) {
-    if (process.env.CHARON_PROVIDER_STUB_EMPTY_OHLCV === 'true') {
+    const pairOhlcv = /ohlcv\/pair/.test(pathname);
+    if (process.env.CHARON_PROVIDER_STUB_EMPTY_OHLCV === 'true'
+      || (!pairOhlcv && process.env.CHARON_PROVIDER_STUB_EMPTY_TOKEN_OHLCV === 'true')
+      || (pairOhlcv && process.env.CHARON_PROVIDER_STUB_EMPTY_PAIR_OHLCV === 'true')) {
       return {
         payload: { data: { items: [] } },
         latencyMs: 1,
@@ -211,12 +276,14 @@ function stubBirdeye(pathname, params = {}) {
             {
               block_unix_time: endSec - 45,
               volume_usd: 10,
+              pool_id: 'StubPair1111111111111111111111111111111111',
               from: { address: mint, price: 0.0001 },
               to: { address: 'So11111111111111111111111111111111111111112', price: 160 },
             },
             {
               block_unix_time: endSec - 15,
               volume_usd: 20,
+              pool_id: 'StubPair1111111111111111111111111111111111',
               from: { address: 'So11111111111111111111111111111111111111112', price: 160 },
               to: { address: mint, price: 0.00015 },
             },
@@ -279,7 +346,7 @@ export async function fetchBirdeyeHolders(mint) {
   };
 }
 
-export async function fetchBirdeyeOhlcv(mint, { atMs = now(), interval = '5m', count = 2 } = {}) {
+export async function fetchBirdeyeOhlcv(mint, { atMs = now(), interval = '5m', count = 2, padding = false } = {}) {
   const to = Math.floor(atMs / 1000);
   const result = await birdeyeGet('/defi/v3/ohlcv', {
     address: mint,
@@ -288,16 +355,122 @@ export async function fetchBirdeyeOhlcv(mint, { atMs = now(), interval = '5m', c
     time_to: to,
     mode: 'count',
     count_limit: count,
-    padding: false,
+    padding,
     ui_amount_mode: 'scaled',
   });
   const candle = latestCandle(result.payload, { interval, atMs });
-  const candles = Array.isArray(result.payload?.items) ? result.payload.items : [];
+  const candles = unwrapItems(result.payload);
   return {
     ...result,
     endpoint: '/defi/v3/ohlcv',
     normalized: candle ? { ...candle, interval } : null,
     candles,
+  };
+}
+
+export async function fetchBirdeyePairOhlcv(pairAddress, { atMs = now(), interval = '5m', count = 2, padding = true } = {}) {
+  const to = Math.floor(atMs / 1000);
+  const result = await birdeyeGet('/defi/v3/ohlcv/pair', {
+    address: pairAddress,
+    type: interval,
+    time_to: to,
+    mode: 'count',
+    count_limit: count,
+    padding,
+  });
+  const candle = latestCandle(result.payload, { interval, atMs });
+  const candles = unwrapItems(result.payload);
+  return {
+    ...result,
+    endpoint: '/defi/v3/ohlcv/pair',
+    normalized: candle ? { ...candle, interval, source: 'pair_ohlcv', pairAddress } : null,
+    candles,
+    pairAddress,
+  };
+}
+
+export async function fetchBirdeyeTokenTxs(mint, { atMs = now(), interval = '1m', count = 15, limit = 100 } = {}) {
+  const durationMs = intervalMs(interval) * Math.max(1, Math.trunc(Number(count) || 1));
+  const to = Math.floor(atMs / 1000);
+  const from = Math.floor((atMs - durationMs) / 1000);
+  const result = await birdeyeGet('/defi/v3/token/txs', {
+    address: mint,
+    offset: 0,
+    limit,
+    sort_by: 'block_unix_time',
+    sort_type: 'desc',
+    tx_type: 'swap',
+    after_time: from,
+    before_time: to,
+    ui_amount_mode: 'scaled',
+  });
+  const txs = unwrapItems(result.payload);
+  return {
+    ...result,
+    endpoint: '/defi/v3/token/txs',
+    txs,
+    pairAddress: txs.map(pairAddressFromTokenTx).find(Boolean) || null,
+    candles: candlesFromTokenTxs(result.payload, { mint, interval, atMs, count }),
+    normalized: candleFromTokenTxs(result.payload, { mint, interval, atMs }),
+  };
+}
+
+export async function fetchBirdeyeEntryCandles(mint, { atMs = now(), interval = '1m', count = 15, minCandles = 5 } = {}) {
+  const tokenOhlcv = await fetchBirdeyeOhlcv(mint, { atMs, interval, count, padding: false });
+  if ((tokenOhlcv.candles?.length || 0) >= minCandles) {
+    return { ...tokenOhlcv, source: 'token_ohlcv', fallbackTrace: ['token_ohlcv'] };
+  }
+
+  const tokenTxs = await fetchBirdeyeTokenTxs(mint, { atMs, interval, count });
+  const pairAddress = tokenTxs.pairAddress;
+  if (pairAddress) {
+    const pairOhlcv = await fetchBirdeyePairOhlcv(pairAddress, { atMs, interval, count, padding: true });
+    if ((pairOhlcv.candles?.length || 0) >= minCandles) {
+      return {
+        ...pairOhlcv,
+        source: 'pair_ohlcv',
+        fallbackTrace: ['token_ohlcv_empty', 'token_txs_pair_lookup', 'pair_ohlcv'],
+        tokenOhlcvCount: tokenOhlcv.candles?.length || 0,
+        tokenTxCount: tokenTxs.txs?.length || 0,
+      };
+    }
+    if ((tokenTxs.candles?.length || 0) >= minCandles) {
+      return {
+        ...tokenTxs,
+        source: 'token_txs',
+        fallbackTrace: ['token_ohlcv_empty', 'pair_ohlcv_insufficient', 'token_txs'],
+        tokenOhlcvCount: tokenOhlcv.candles?.length || 0,
+        pairOhlcvCount: pairOhlcv.candles?.length || 0,
+        tokenTxCount: tokenTxs.txs?.length || 0,
+      };
+    }
+    return {
+      ...pairOhlcv,
+      source: 'insufficient',
+      fallbackTrace: ['token_ohlcv_empty', 'pair_ohlcv_insufficient', 'token_txs_insufficient'],
+      tokenOhlcvCount: tokenOhlcv.candles?.length || 0,
+      pairOhlcvCount: pairOhlcv.candles?.length || 0,
+      tokenTxCount: tokenTxs.txs?.length || 0,
+      candles: pairOhlcv.candles?.length ? pairOhlcv.candles : tokenTxs.candles,
+    };
+  }
+
+  if ((tokenTxs.candles?.length || 0) >= minCandles) {
+    return {
+      ...tokenTxs,
+      source: 'token_txs',
+      fallbackTrace: ['token_ohlcv_empty', 'token_txs_no_pair'],
+      tokenOhlcvCount: tokenOhlcv.candles?.length || 0,
+      tokenTxCount: tokenTxs.txs?.length || 0,
+    };
+  }
+
+  return {
+    ...tokenTxs,
+    source: 'insufficient',
+    fallbackTrace: ['token_ohlcv_empty', 'token_txs_insufficient'],
+    tokenOhlcvCount: tokenOhlcv.candles?.length || 0,
+    tokenTxCount: tokenTxs.txs?.length || 0,
   };
 }
 

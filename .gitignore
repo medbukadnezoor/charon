@@ -28,3 +28,6 @@ tools/wallet-harvester/reports/*.json
 tools/wallet-harvester/reports/*.csv
 
 ARCHITECTURE.md
+
+# Generated strategy reports
+reports/

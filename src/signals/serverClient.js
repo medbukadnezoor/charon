@@ -7,6 +7,7 @@ import { logScreeningEvent } from '../db/screeningEvents.js';
 import { storeSignalEvent, trendingSignalPass, trending } from './trending.js';
 import { graduated } from './graduated.js';
 import { normalizeTrendingRiskFields } from '../enrichment/trendingRisk.js';
+import { RUNNER_EXPANSION_TAG, signalLooksRunnerExpansionEligible } from '../pipeline/runnerExpansion.js';
 
 let candidateHandler = null;
 let degenHandler = null;
@@ -55,6 +56,13 @@ export function buildSignalMeta({ signal, sourceCount, sources, hasFeeClaim, rou
     hasFeeClaim,
     seenAtMs,
     route,
+  };
+}
+
+function tagSignalMeta(signalMeta, tag) {
+  return {
+    ...signalMeta,
+    tags: [...new Set([...(Array.isArray(signalMeta.tags) ? signalMeta.tags : []), tag])],
   };
 }
 
@@ -241,15 +249,19 @@ export async function fetchServerSignals() {
       if (strat.token_age_max_ms > 0) {
         const tokenAge = signal.ageMs || 0;
         if (tokenAge > strat.token_age_max_ms) {
-          logEarlySignalSkip({
-            signal,
-            strat,
-            signalMeta,
-            reasonCode: 'token_age_above_max',
-            reasonText: `token age ${tokenAge}ms above max ${strat.token_age_max_ms}ms`,
-          });
-          processed++;
-          continue;
+          if (signalLooksRunnerExpansionEligible(signalMeta, signal, strat)) {
+            signalMeta.tags = tagSignalMeta(signalMeta, RUNNER_EXPANSION_TAG).tags;
+          } else {
+            logEarlySignalSkip({
+              signal,
+              strat,
+              signalMeta,
+              reasonCode: 'token_age_above_max',
+              reasonText: `token age ${tokenAge}ms above max ${strat.token_age_max_ms}ms`,
+            });
+            processed++;
+            continue;
+          }
         }
       }
 

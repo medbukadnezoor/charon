@@ -1,9 +1,10 @@
 import axios from 'axios';
-import { ENABLE_LLM, LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, LLM_TIMEOUT_MS } from '../config.js';
+import { LLM_REASONING_EFFORT, LLM_TIMEOUT_MS } from '../config.js';
 import { now, json, stripThinking, strictJsonFromText } from '../utils.js';
 import { fmtPct } from '../format.js';
 import { db } from '../db/connection.js';
 import { numSetting } from '../db/settings.js';
+import { llmConfigured, postChatCompletion } from '../llm/providers.js';
 
 export function fallbackLessons(summary) {
   const lessons = [];
@@ -39,11 +40,10 @@ export function fallbackLessons(summary) {
 
 export async function generateLessons(summary) {
   const fallback = fallbackLessons(summary);
-  if (!ENABLE_LLM || !LLM_API_KEY) return { lessons: fallback, raw: { fallback: true } };
+  if (!llmConfigured()) return { lessons: fallback, raw: { fallback: true } };
   const timeoutMs = numSetting('llm_timeout_ms', LLM_TIMEOUT_MS);
   try {
-    const res = await axios.post(`${LLM_BASE_URL.replace(/\/$/, '')}/chat/completions`, {
-      model: LLM_MODEL,
+    const requestBody = {
       temperature: 0.1,
       messages: [
         {
@@ -66,10 +66,9 @@ export async function generateLessons(summary) {
           }),
         },
       ],
-    }, {
-      timeout: timeoutMs,
-      headers: { authorization: `Bearer ${LLM_API_KEY}`, 'content-type': 'application/json' },
-    });
+    };
+    if (LLM_REASONING_EFFORT) requestBody.reasoning_effort = LLM_REASONING_EFFORT;
+    const { response: res } = await postChatCompletion(requestBody, { timeout: timeoutMs, axiosClient: axios });
     const parsed = strictJsonFromText(res.data?.choices?.[0]?.message?.content || '');
     const lessons = Array.isArray(parsed.lessons)
       ? parsed.lessons.map(item => ({
