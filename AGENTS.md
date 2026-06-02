@@ -141,6 +141,18 @@ owner explicitly changes those fields.
 
 ### Local Mac data snapshots
 
+When the owner says "Charon shadow" for analysis, treat it as the canonical
+combined source, not an arbitrary single DB: first use
+`reports/shadow-combined/latest/charon-shadow-combined.sqlite` when its
+manifest has `source_scope=charon-shadow-combined` and empty `source_warning`.
+If it is missing or stale, build it with
+`scripts/build_shadow_combined_snapshot.js` from the latest Mac snapshot plus
+timestamp-gated VPS rows. The active shadow source is the snapshot manifest's
+`remote_shadow_db`, currently
+`/var/oled/charon-data/trading-data/charon-shadow.sqlite`; `remote_data_dir`
+may still be `/opt/trading-data` for live/harvester data and must not be used
+to infer shadow provenance. See `docs/operations/charon-shadow-combined.md`.
+
 For Charon shadow/trade analysis, prefer verified local Mac snapshots before
 reading large VPS DBs directly:
 
@@ -150,10 +162,15 @@ reading large VPS DBs directly:
 | `docs/operations/vps-trading-data-snapshots.md` | Snapshot/retention guard instructions |
 
 Future agents must read `MANIFEST.txt` in the local snapshot first and state the
-snapshot timestamp. Query `moonbags:/opt/trading-data` only for runtime state,
-freshness checks, or bounded rows newer than the local snapshot. When combining
-local + VPS data, use timestamp-gated append-only merges; refresh the snapshot
-instead of merging mutable config/settings tables.
+snapshot timestamp plus `remote_shadow_db` when doing shadow analysis. Query the
+manifest's per-file remote source only for runtime state, freshness checks, or
+bounded rows newer than the local snapshot. When combining local + VPS data, use
+timestamp-gated append-only merges; refresh the snapshot instead of merging
+mutable config/settings tables.
+
+For robust Charon shadow quant backtests, start from
+`docs/operations/quant-shadow-backtest-plan.md`. Implementation orchestration
+must start with the Architect role, then spawn Coder and Verifier.
 
 ### PM2 processes
 
